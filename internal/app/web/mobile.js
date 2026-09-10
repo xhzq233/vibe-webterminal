@@ -146,6 +146,8 @@
       textarea.focus({ preventScroll: true });
       textarea.setSelectionRange(0, textarea.value.length);
       copied = document.execCommand("copy");
+    } catch {
+      copied = false;
     } finally {
       textarea.remove();
       if (previousFocus?.classList?.contains("xterm-helper-textarea")) {
@@ -161,7 +163,7 @@
     return false;
   }
 
-  async function copyText(text) {
+  async function copyText(text, manual = true) {
     if (!text) return false;
     if (window.isSecureContext && typeof navigator.clipboard?.writeText === "function") {
       try {
@@ -171,7 +173,7 @@
         // LAN HTTP and browser permission policies can reject Clipboard API.
       }
     }
-    return legacyCopyText(text) || offerManualCopy(text);
+    return legacyCopyText(text) || (manual && offerManualCopy(text));
   }
 
   function createInputToolbar(terminal) {
@@ -277,58 +279,6 @@
       },
       "escape",
     );
-    const fullscreenMessage = document.createElement("p");
-    fullscreenMessage.id = "panel-message";
-    fullscreenMessage.hidden = true;
-    fullscreenMessage.setAttribute("role", "status");
-    let wasFullscreen = false;
-    let requestedFullscreenExit = false;
-    const fullscreenButton = appendButton(actions, async () => {
-      fullscreenMessage.hidden = true;
-      const root = document.documentElement;
-      try {
-        if (document.fullscreenElement || document.webkitFullscreenElement) {
-          requestedFullscreenExit = true;
-          const exit = document.exitFullscreen || document.webkitExitFullscreen;
-          await exit.call(document);
-        } else {
-          requestedFullscreenExit = false;
-          // A focused toggle would interpret Space/Enter as another click.
-          fullscreenButton.blur();
-          const request = root.requestFullscreen || root.webkitRequestFullscreen;
-          if (!request) {
-            fullscreenMessage.textContent = "此浏览器不支持网页全屏。";
-            fullscreenMessage.hidden = false;
-            return;
-          }
-          // Call directly from the click to retain the browser's user gesture.
-          await request.call(root);
-        }
-      } catch {
-        fullscreenMessage.textContent = "全屏请求被浏览器拒绝，请再次点击重试。";
-        fullscreenMessage.hidden = false;
-      } finally {
-        placePanel();
-      }
-    }, "fullscreen");
-    fullscreenButton.id = "fullscreen-button";
-    fullscreenButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>';
-    function updateFullscreenButton() {
-      const active = !!(document.fullscreenElement || document.webkitFullscreenElement);
-      if (wasFullscreen && !active && !requestedFullscreenExit && isIOS) {
-        fullscreenMessage.textContent = "浏览器已退出全屏。iPad 输入时可能退出，可继续在普通模式操作。";
-        fullscreenMessage.hidden = false;
-      }
-      wasFullscreen = active;
-      const label = active ? "退出全屏" : "全屏";
-      fullscreenButton.setAttribute("aria-label", label);
-      fullscreenButton.setAttribute("title", label);
-      fullscreenButton.setAttribute("aria-pressed", String(active));
-      scheduleViewportUpdate();
-      placePanel();
-    }
-    document.addEventListener("fullscreenchange", updateFullscreenButton);
-    document.addEventListener("webkitfullscreenchange", updateFullscreenButton);
     const submitActions = document.createElement("div");
     submitActions.id = "panel-submit-actions";
     const sendButton = appendButton(submitActions, sendDraft, "send");
@@ -341,7 +291,6 @@
     composer.appendChild(submitActions);
     content.appendChild(actions);
     content.appendChild(composer);
-    content.appendChild(fullscreenMessage);
     document.body.appendChild(toolbar);
 
     let x, y, drag = null;
@@ -398,7 +347,7 @@
     viewport?.addEventListener("resize", placePanel, { passive: true });
     viewport?.addEventListener("scroll", placePanel, { passive: true });
     window.addEventListener("resize", placePanel, { passive: true });
-    updateFullscreenButton();
+    placePanel();
 
     let connectionState = "connected";
     let reconnectTimer = 0;
@@ -610,15 +559,23 @@
       const text = selectedTerminalText();
       if (text) {
         copySelectionText = text;
-        copyButton.textContent = "Copy";
-        copyButton.hidden = false;
       }
       return text;
     }
 
-    // Herdr's selection belongs to the TUI, not xterm's selection buffer.
-    // Receiving OSC 52 is asynchronous: retain the payload until a user click
-    // grants clipboard access, including on LAN HTTP.
+    async function autoCopy(text) {
+      if (!text) return;
+      copySelectionText = text;
+      copyButton.hidden = true;
+      const copied = await copyText(text, false);
+      if (copySelectionText !== text) return;
+      copyButton.textContent = "Copy";
+      copyButton.hidden = copied;
+      if (copied) copySelectionText = "";
+    }
+
+    // Herdr sends the selected text directly to this browser via OSC 52.
+    // Try automatic clipboard access; show Copy only if the browser refuses.
     window.term?.parser?.registerOscHandler(52, (data) => {
       const separator = data.indexOf(";");
       if (separator < 0 || data.slice(separator + 1) === "?") return true;
@@ -626,9 +583,7 @@
         const bytes = Uint8Array.from(atob(data.slice(separator + 1)), (character) => character.charCodeAt(0));
         const text = new TextDecoder().decode(bytes);
         if (text) {
-          copySelectionText = text;
-          copyButton.textContent = "Copy";
-          copyButton.hidden = false;
+          void autoCopy(text);
         }
       } catch { /* Ignore malformed terminal clipboard payloads. */ }
       return true;
@@ -774,8 +729,8 @@
     function finishSelection(clientX, clientY) {
       sendMouse("mouseup", clientX, clientY, 0, 0, true);
       selecting = false;
-      captureCopySelection();
-      if (selectionMoved) copyButton.hidden = false;
+      const text = captureCopySelection();
+      if (selectionMoved) void autoCopy(text);
     }
 
     function touchCenter(touches) {

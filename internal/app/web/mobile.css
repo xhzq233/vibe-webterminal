@@ -88,7 +88,7 @@
   -webkit-user-select: none;
 }
 #panel-content { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-#panel-actions { display: grid; grid-template-columns: repeat(3, minmax(28px, 1fr)) minmax(42px, 1.4fr) minmax(50px, 1.6fr) minmax(32px, 1fr) 32px; gap: 4px; }
+#panel-actions { display: grid; grid-template-columns: repeat(3, minmax(28px, 1fr)) minmax(42px, 1.4fr) minmax(50px, 1.6fr) minmax(32px, 1fr); gap: 4px; }
 #panel-composer { display: flex; align-items: stretch; gap: 8px; }
 #panel-input {
   flex: 1;
@@ -136,5 +136,3 @@
 #panel-actions button { min-width: 0; height: 36px; padding: 0 4px; background: rgba(255,255,255,.04); }
 
 #panel-submit-actions button { padding: 0; white-space: nowrap; }
-
-#panel-message { margin: 0; color: #f3c77b; font: 12px/1.5 system-ui, sans-serif; }
