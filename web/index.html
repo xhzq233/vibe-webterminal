@@ -34,9 +34,30 @@
   user-select: none;
   -webkit-user-select: none;
 }
+#panel-content { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 #panel-actions { display: flex; flex-wrap: wrap; gap: 2px; }
+#panel-composer { display: flex; align-items: center; gap: 4px; padding: 2px; }
+#panel-input {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 10px;
+  background: rgba(0,0,0,.25);
+  color: #f3f4f6;
+  font: 16px -apple-system, BlinkMacSystemFont, sans-serif;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: auto;
+}
+#panel-input:focus { outline: none; border-color: #8ab4f8; }
+#panel-input::placeholder { color: #9298a3; }
+#enter-button { background: rgba(138,180,248,.15) !important; }
 #edge-tab { display: none; }
-#touch-toolbar.docked #panel-actions { display: none; }
+#touch-toolbar.docked #panel-content { display: none; }
 #touch-toolbar.docked #edge-tab { display: block; min-width: 32px; padding: 0; }
 #touch-toolbar.docked { padding: 2px; opacity: .7; }
 #touch-toolbar.docked[data-side="left"] { border-radius: 0 12px 12px 0; }
@@ -57,6 +78,7 @@
 #touch-toolbar button:focus-visible { outline: 2px solid #8ab4f8; outline-offset: -2px; }
 </style>
 <div id="touch-toolbar" role="toolbar" aria-label="Terminal controls">
+  <div id="panel-content">
   <div id="panel-actions">
     <button id="up-button" type="button" aria-label="Arrow Up">↑</button>
     <button id="down-button" type="button" aria-label="Arrow Down">↓</button>
@@ -66,11 +88,19 @@
     <button id="space-button" type="button" aria-label="Space">Space</button>
     <button id="interrupt-button" type="button" aria-label="Ctrl+C">Ctrl+C</button>
   </div>
-  <button id="edge-tab" type="button" aria-label="Expand panel" aria-expanded="false" aria-controls="panel-actions">‹</button>
+  <div id="panel-composer">
+    <input id="panel-input" type="text" aria-label="Draft input" placeholder="输入…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" />
+    <button id="enter-button" type="button" aria-label="Enter">Enter ↵</button>
+  </div>
+  </div>
+  <button id="edge-tab" type="button" aria-label="Expand panel" aria-expanded="false" aria-controls="panel-content">‹</button>
 </div>
 <script>
 (() => {
   const panel = document.getElementById('touch-toolbar');
+  const draft = document.getElementById('panel-input');
+  let composing = false;
+  let compositionEndedAt = -Infinity;
   const edgeTab = document.getElementById('edge-tab');
   let suppressClickUntil = 0;
   let dockSide = null;
@@ -84,10 +114,35 @@
     'right-button': term => arrow(term, 'C'),
     'bottom-button': term => term.scrollToBottom(),
   };
-  panel.addEventListener('pointerdown', event => event.preventDefault());
+  panel.addEventListener('pointerdown', event => {
+    if (event.target !== draft) event.preventDefault();
+  });
+  draft.addEventListener('compositionstart', () => { composing = true; });
+  draft.addEventListener('compositionend', () => {
+    composing = false;
+    compositionEndedAt = performance.now();
+  });
+  function submitDraft() {
+    if (!window.term || composing || performance.now() < suppressClickUntil) return;
+    if (draft.value) window.term.paste(draft.value);
+    window.term.input('\r');
+    draft.value = '';
+  }
+  draft.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229 || composing) return;
+    event.preventDefault();
+    // Safari can report the IME-confirming Enter immediately after compositionend.
+    if (performance.now() - compositionEndedAt < 80) return;
+    submitDraft();
+  });
+  document.getElementById('enter-button').addEventListener('click', submitDraft);
   for (const [id, action] of Object.entries(actions)) {
     document.getElementById(id).addEventListener('click', () => {
       if (!window.term || performance.now() < suppressClickUntil) return;
+      if (id === 'space-button' && document.activeElement === draft) {
+        draft.setRangeText(' ', draft.selectionStart, draft.selectionEnd, 'end');
+        return;
+      }
       action(window.term);
       if (id !== 'bottom-button') window.term.focus();
     });
@@ -122,6 +177,7 @@
     placePanel();
   });
   interact(panel).draggable({
+    ignoreFrom: '#panel-input',
     listeners: {
       start() {
         suppressClickUntil = Infinity;
