@@ -280,6 +280,47 @@
       },
       "escape",
     );
+    const fullscreenMessage = document.createElement("p");
+    fullscreenMessage.id = "panel-message";
+    fullscreenMessage.hidden = true;
+    fullscreenMessage.setAttribute("role", "status");
+    const fullscreenButton = appendButton(actions, async () => {
+      fullscreenMessage.hidden = true;
+      const root = document.documentElement;
+      try {
+        if (document.fullscreenElement || document.webkitFullscreenElement) {
+          const exit = document.exitFullscreen || document.webkitExitFullscreen;
+          await exit.call(document);
+        } else {
+          const request = root.requestFullscreen || root.webkitRequestFullscreen;
+          if (!request) {
+            fullscreenMessage.textContent = "此浏览器不支持网页全屏。";
+            fullscreenMessage.hidden = false;
+            return;
+          }
+          // Call directly from the click to retain the browser's user gesture.
+          await request.call(root);
+        }
+      } catch {
+        fullscreenMessage.textContent = "全屏请求被浏览器拒绝，请再次点击重试。";
+        fullscreenMessage.hidden = false;
+      } finally {
+        placePanel();
+      }
+    }, "fullscreen");
+    fullscreenButton.id = "fullscreen-button";
+    fullscreenButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>';
+    function updateFullscreenButton() {
+      const active = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      const label = active ? "退出全屏" : "全屏";
+      fullscreenButton.setAttribute("aria-label", label);
+      fullscreenButton.setAttribute("title", label);
+      fullscreenButton.setAttribute("aria-pressed", String(active));
+      scheduleViewportUpdate();
+      placePanel();
+    }
+    document.addEventListener("fullscreenchange", updateFullscreenButton);
+    document.addEventListener("webkitfullscreenchange", updateFullscreenButton);
     const submitActions = document.createElement("div");
     submitActions.id = "panel-submit-actions";
     const sendButton = appendButton(submitActions, sendDraft, "send");
@@ -292,6 +333,7 @@
     composer.appendChild(submitActions);
     content.appendChild(actions);
     content.appendChild(composer);
+    content.appendChild(fullscreenMessage);
     document.body.appendChild(toolbar);
 
     let x, y, drag = null;
@@ -348,7 +390,7 @@
     viewport?.addEventListener("resize", placePanel, { passive: true });
     viewport?.addEventListener("scroll", placePanel, { passive: true });
     window.addEventListener("resize", placePanel, { passive: true });
-    placePanel();
+    updateFullscreenButton();
 
     let connectionState = "connected";
     let reconnectTimer = 0;
@@ -462,7 +504,7 @@
     document.addEventListener(
       "click",
       (event) => {
-        if (event.target === pasteInput || connectionState === "reconnecting") return;
+        if (toolbar.contains(event.target) || connectionState === "reconnecting") return;
         if (updateConnectionState() !== "reconnect-required") return;
         event.preventDefault();
         event.stopImmediatePropagation();
