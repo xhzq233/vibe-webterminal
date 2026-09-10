@@ -106,9 +106,7 @@
     event.preventDefault();
   });
 
-  if (!(navigator.maxTouchPoints > 0 || window.matchMedia("(pointer: coarse)").matches)) {
-    return;
-  }
+  const touchEnabled = navigator.maxTouchPoints > 0 || window.matchMedia("(pointer: coarse)").matches;
 
   const holdDelay = 450;
   const compatibilityMouseDelay = 500;
@@ -138,17 +136,16 @@
     textarea.style.border = "0";
     textarea.style.opacity = "0";
     document.body.appendChild(textarea);
-    let copied = false;
     textarea.addEventListener("copy", (event) => {
       if (!event.clipboardData) return;
       event.clipboardData.setData("text/plain", text);
       event.preventDefault();
-      copied = true;
     });
+    let copied = false;
     try {
       textarea.focus({ preventScroll: true });
       textarea.setSelectionRange(0, textarea.value.length);
-      copied = document.execCommand("copy") || copied;
+      copied = document.execCommand("copy");
     } finally {
       textarea.remove();
       if (previousFocus?.classList?.contains("xterm-helper-textarea")) {
@@ -161,7 +158,7 @@
   function offerManualCopy(text) {
     if (typeof window.prompt !== "function") return false;
     window.prompt("Copy selected text", text);
-    return true;
+    return false;
   }
 
   async function copyText(text) {
@@ -284,14 +281,20 @@
     fullscreenMessage.id = "panel-message";
     fullscreenMessage.hidden = true;
     fullscreenMessage.setAttribute("role", "status");
+    let wasFullscreen = false;
+    let requestedFullscreenExit = false;
     const fullscreenButton = appendButton(actions, async () => {
       fullscreenMessage.hidden = true;
       const root = document.documentElement;
       try {
         if (document.fullscreenElement || document.webkitFullscreenElement) {
+          requestedFullscreenExit = true;
           const exit = document.exitFullscreen || document.webkitExitFullscreen;
           await exit.call(document);
         } else {
+          requestedFullscreenExit = false;
+          // A focused toggle would interpret Space/Enter as another click.
+          fullscreenButton.blur();
           const request = root.requestFullscreen || root.webkitRequestFullscreen;
           if (!request) {
             fullscreenMessage.textContent = "此浏览器不支持网页全屏。";
@@ -312,6 +315,11 @@
     fullscreenButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>';
     function updateFullscreenButton() {
       const active = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      if (wasFullscreen && !active && !requestedFullscreenExit && isIOS) {
+        fullscreenMessage.textContent = "浏览器已退出全屏。iPad 输入时可能退出，可继续在普通模式操作。";
+        fullscreenMessage.hidden = false;
+      }
+      wasFullscreen = active;
       const label = active ? "退出全屏" : "全屏";
       fullscreenButton.setAttribute("aria-label", label);
       fullscreenButton.setAttribute("title", label);
@@ -595,14 +603,36 @@
     copyButton.textContent = "Copy";
     copyButton.hidden = true;
     copyButton.setAttribute("aria-label", "Copy terminal selection");
-    terminal.appendChild(copyButton);
+    document.body.appendChild(copyButton);
 
     let copySelectionText = "";
     function captureCopySelection() {
       const text = selectedTerminalText();
-      if (text) copySelectionText = text;
+      if (text) {
+        copySelectionText = text;
+        copyButton.textContent = "Copy";
+        copyButton.hidden = false;
+      }
       return text;
     }
+
+    // Herdr's selection belongs to the TUI, not xterm's selection buffer.
+    // Receiving OSC 52 is asynchronous: retain the payload until a user click
+    // grants clipboard access, including on LAN HTTP.
+    window.term?.parser?.registerOscHandler(52, (data) => {
+      const separator = data.indexOf(";");
+      if (separator < 0 || data.slice(separator + 1) === "?") return true;
+      try {
+        const bytes = Uint8Array.from(atob(data.slice(separator + 1)), (character) => character.charCodeAt(0));
+        const text = new TextDecoder().decode(bytes);
+        if (text) {
+          copySelectionText = text;
+          copyButton.textContent = "Copy";
+          copyButton.hidden = false;
+        }
+      } catch { /* Ignore malformed terminal clipboard payloads. */ }
+      return true;
+    });
 
     for (const eventName of ["touchstart", "touchmove", "touchend", "touchcancel", "pointerdown", "mousedown"]) {
       copyButton.addEventListener(eventName, (event) => {
@@ -630,6 +660,7 @@
     });
     window.term?.onSelectionChange?.(captureCopySelection);
 
+    if (!touchEnabled) return;
     createInputToolbar(terminal);
 
     let startX = 0;

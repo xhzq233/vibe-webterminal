@@ -320,8 +320,7 @@ function loadTouchMobile({
           });
         }
       }
-      // WebKit may report false even when the copy event accepted text.
-      return false;
+      return copyEventSupported;
     },
   };
 
@@ -426,7 +425,7 @@ function loadTouchMobile({
   };
   vm.runInNewContext(source, context, { filename: "mobile.js" });
 
-  const copyButton = terminal.children.find((child) => child.className === "herdr-tty-copy-button");
+  const copyButton = body.children.find((child) => child.className === "herdr-tty-copy-button");
   const toolbar = body.children.find((child) => child.className === "herdr-tty-input-toolbar");
 
   return {
@@ -597,7 +596,7 @@ test("copy button offers a native manual field when WebKit rejects programmatic 
   await runtime.click(runtime.copyButton);
 
   assert.deepEqual(runtime.prompts, [["Copy selected text", "manual text"]]);
-  assert.equal(runtime.copyButton.hidden, true);
+  assert.equal(runtime.copyButton.hidden, false);
   assert.equal(runtime.copyButton.disabled, false);
 });
 

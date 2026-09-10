@@ -353,6 +353,9 @@ func (config Config) BackendArgs(port int) []string {
 		"--cwd", config.CWD,
 		"--terminal-type", "xterm-256color",
 	}
+	// Herdr 0.9 uses this remote-terminal marker to send OSC 52 to the
+	// browser instead of writing to the server Mac's clipboard.
+	args = append(args, "env", "SSH_TTY=/dev/tty")
 	return config.appendHerdrCommand(args)
 }
 

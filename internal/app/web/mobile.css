@@ -33,13 +33,13 @@
 
   #terminal-container {
     position: fixed !important;
-    /* Keep the terminal grid fixed; crop its top as the visible area shrinks. */
-    top: calc(var(--herdr-tty-viewport-top) + var(--herdr-tty-viewport-height) - 100lvh) !important;
+    /* dvh accounts for browser chrome but does not shrink for the keyboard. */
+    top: calc(var(--herdr-tty-viewport-top) + var(--herdr-tty-viewport-height) - 100dvh + env(safe-area-inset-top)) !important;
     left: var(--herdr-tty-viewport-left) !important;
-    height: 100lvh !important;
+    height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
     width: 100vw !important;
     transform: none !important;
-    clip-path: inset(max(0px, calc(100lvh - var(--herdr-tty-viewport-height))) 0 0);
+    clip-path: inset(max(0px, calc(100dvh - var(--herdr-tty-viewport-height))) 0 0);
   }
 
   .xterm {
@@ -48,26 +48,26 @@
     touch-action: none;
   }
 
-  .xterm .herdr-tty-copy-button {
-    position: absolute;
-    right: 12px;
-    bottom: calc(12px + env(safe-area-inset-bottom));
-    z-index: 20;
-    min-width: 64px;
-    min-height: 40px;
-    border: 1px solid #ffffff33;
-    border-radius: 8px;
-    padding: 8px 14px;
-    background: #20242dcc;
-    color: #fff;
-    font: 600 14px/1 system-ui, sans-serif;
-    touch-action: manipulation;
-  }
+}
 
-  .xterm .herdr-tty-copy-button[hidden] {
-    display: none;
-  }
+.herdr-tty-copy-button {
+  position: fixed;
+  right: 12px;
+  top: calc(var(--herdr-tty-viewport-top) + var(--herdr-tty-viewport-height) - 56px - env(safe-area-inset-bottom));
+  z-index: 101;
+  min-width: 64px;
+  min-height: 40px;
+  border: 1px solid #ffffff33;
+  border-radius: 8px;
+  padding: 8px 14px;
+  background: #20242dcc;
+  color: #fff;
+  font: 600 14px/1 system-ui, sans-serif;
+  touch-action: manipulation;
+}
 
+.herdr-tty-copy-button[hidden] {
+  display: none;
 }
 
 #touch-toolbar {
