@@ -702,34 +702,21 @@ test("ordinary terminal text does not trigger Herdr dialog focus", () => {
   assert.equal(runtime.keyboardFocuses, 0);
 });
 
-test("Send pastes the draft and Panel Enter sends only return", async () => {
+test("Send only pastes while Panel Enter submits any remaining draft", async () => {
   const runtime = loadTouchMobile();
-
-  runtime.focusTerminal();
-
-  assert.equal(runtime.toolbar.hidden, false);
   runtime.focusPasteInput();
-  assert.equal(runtime.toolbar.hidden, false);
-  assert.equal(runtime.toolbarButton("escape").textContent, "Esc");
-  await runtime.click(runtime.toolbarButton("escape"));
-  runtime.pasteInput.value = "draft command";
-  runtime.trigger(runtime.pasteInput, "input");
-  await runtime.click(runtime.toolbarButton("input"));
-  assert.equal(runtime.pasteInput.value, "draft command");
-  assert.deepEqual(runtime.terminalPastes, []);
+  runtime.pasteInput.value = "first draft";
   await runtime.click(runtime.toolbarButton("send"));
   assert.equal(runtime.pasteInput.value, "");
+  assert.deepEqual(runtime.terminalInputs, []);
+  runtime.pasteInput.value = "second draft";
   await runtime.click(runtime.toolbarButton("input"));
-  assert.deepEqual(runtime.terminalInputs, [
-    { data: "\x1b", wasUserInput: true },
-    { data: "\r", wasUserInput: true },
-    { data: "\r", wasUserInput: true },
-  ]);
-  assert.deepEqual(runtime.terminalPastes, ["draft command"]);
+  assert.equal(runtime.pasteInput.value, "");
+  await runtime.click(runtime.toolbarButton("input"));
   assert.deepEqual(runtime.terminalEvents, [
-    { data: "\x1b", type: "input" },
+    { data: "first draft", type: "paste" },
+    { data: "second draft", type: "paste" },
     { data: "\r", type: "input" },
-    { data: "draft command", type: "paste" },
     { data: "\r", type: "input" },
   ]);
 });

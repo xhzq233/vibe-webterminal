@@ -245,7 +245,10 @@
       if (composing) return;
       const state = updateConnectionState();
       if (state === "reconnect-required") reconnectTerminal();
-      else if (state === "connected") window.term.input("\r", true);
+      else if (state === "connected") {
+        sendDraft();
+        window.term.input("\r", true);
+      }
     }
 
     const actions = document.createElement("div");
