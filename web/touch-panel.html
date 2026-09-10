@@ -1,0 +1,171 @@
+<style>
+#terminal-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100lvh;
+  transform: translateY(var(--keyboard-shift, 0px));
+}
+#touch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  max-width: calc(100vw - 24px);
+  padding: 4px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 15px;
+  background: rgba(38,40,44,.86);
+  box-shadow: 0 4px 18px rgba(0,0,0,.2);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#panel-actions { display: flex; flex-wrap: wrap; gap: 2px; }
+#edge-tab { display: none; }
+#touch-toolbar.docked #panel-actions { display: none; }
+#touch-toolbar.docked #edge-tab { display: block; min-width: 32px; padding: 0; }
+#touch-toolbar.docked { padding: 2px; opacity: .7; }
+#touch-toolbar.docked[data-side="left"] { border-radius: 0 12px 12px 0; }
+#touch-toolbar.docked[data-side="right"] { border-radius: 12px 0 0 12px; }
+#touch-toolbar button {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #e5e7eb;
+  font: 500 14px ui-monospace, SFMono-Regular, Menlo, monospace;
+  touch-action: none;
+  cursor: pointer;
+}
+#touch-toolbar button:active { background: rgba(255,255,255,.14); }
+#touch-toolbar button:focus-visible { outline: 2px solid #8ab4f8; outline-offset: -2px; }
+</style>
+<div id="touch-toolbar" role="toolbar" aria-label="Terminal controls">
+  <div id="panel-actions">
+    <button id="up-button" type="button" aria-label="Arrow Up">↑</button>
+    <button id="down-button" type="button" aria-label="Arrow Down">↓</button>
+    <button id="right-button" type="button" aria-label="Arrow Right">→</button>
+    <button id="bottom-button" type="button" aria-label="Scroll to bottom">⤓</button>
+    <button id="clear-button" type="button" aria-label="Clear">Clear</button>
+    <button id="space-button" type="button" aria-label="Space">Space</button>
+    <button id="interrupt-button" type="button" aria-label="Ctrl+C">Ctrl+C</button>
+  </div>
+  <button id="edge-tab" type="button" aria-label="Expand panel" aria-expanded="false" aria-controls="panel-actions">‹</button>
+</div>
+<script>
+(() => {
+  const panel = document.getElementById('touch-toolbar');
+  const edgeTab = document.getElementById('edge-tab');
+  let suppressClickUntil = 0;
+  let dockSide = null;
+  const arrow = (term, direction) => term.input('\x1b' + (term.modes.applicationCursorKeysMode ? 'O' : '[') + direction);
+  const actions = {
+    'interrupt-button': term => term.input('\x03'),
+    'clear-button': term => term.input('\x0c'),
+    'space-button': term => term.input(' '),
+    'up-button': term => arrow(term, 'A'),
+    'down-button': term => arrow(term, 'B'),
+    'right-button': term => arrow(term, 'C'),
+    'bottom-button': term => term.scrollToBottom(),
+  };
+  panel.addEventListener('pointerdown', event => event.preventDefault());
+  for (const [id, action] of Object.entries(actions)) {
+    document.getElementById(id).addEventListener('click', () => {
+      if (!window.term || performance.now() < suppressClickUntil) return;
+      action(window.term);
+      if (id !== 'bottom-button') window.term.focus();
+    });
+  }
+  let x, y;
+  function viewBounds() {
+    const view = window.visualViewport;
+    return { left: view?.offsetLeft ?? 0, top: view?.offsetTop ?? 0,
+      width: view?.width ?? innerWidth, height: view?.height ?? innerHeight };
+  }
+  function placePanel() {
+    const view = viewBounds();
+    const right = view.left + view.width - panel.offsetWidth - 12;
+    const bottom = view.top + view.height - panel.offsetHeight - 12;
+    x = dockSide === 'left' ? view.left : dockSide === 'right' ? view.left + view.width - panel.offsetWidth : Math.max(view.left, Math.min(x ?? right, right + 12));
+    y = Math.max(view.top + 12, Math.min(y ?? bottom, bottom));
+    panel.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  }
+  function setDock(side) {
+    dockSide = side;
+    panel.classList.toggle('docked', !!side);
+    panel.dataset.side = side || '';
+    edgeTab.textContent = side === 'left' ? '›' : '‹';
+    placePanel();
+  }
+  edgeTab.addEventListener('click', () => {
+    if (performance.now() < suppressClickUntil) return;
+    const side = dockSide;
+    setDock(null);
+    const view = viewBounds();
+    x = side === 'left' ? view.left + 12 : view.left + view.width - panel.offsetWidth - 12;
+    placePanel();
+  });
+  interact(panel).draggable({
+    listeners: {
+      start() {
+        suppressClickUntil = Infinity;
+        dockSide = null;
+      },
+      move(event) { x += event.dx; y += event.dy; placePanel(); },
+      end() {
+        suppressClickUntil = performance.now() + 300;
+        const view = viewBounds();
+        const leftGap = x - view.left;
+        const rightGap = view.left + view.width - x - panel.offsetWidth;
+        setDock(Math.min(leftGap, rightGap) <= 24 ? (leftGap < rightGap ? 'left' : 'right') : null);
+      },
+    },
+  });
+  let frame;
+  let terminalShift = 0;
+  function syncViewport() {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      const view = viewBounds();
+      const terminal = document.getElementById('terminal-container');
+      const term = window.term;
+      const screen = terminal?.querySelector('.xterm-screen');
+      if (terminal && term && screen) {
+        const buffer = term.buffer.active;
+        const row = buffer.baseY + buffer.cursorY - buffer.viewportY;
+        if (row >= 0 && row < term.rows) {
+          const rect = screen.getBoundingClientRect();
+          const cellHeight = rect.height / term.rows;
+          const cursorTop = rect.top - terminalShift + row * cellHeight;
+          const cursorBottom = cursorTop + cellHeight;
+          const minShift = view.top + 8 - cursorTop;
+          const maxShift = view.top + view.height - 12 - cursorBottom;
+          terminalShift = Math.max(minShift, Math.min(0, maxShift));
+          terminal.style.setProperty('--keyboard-shift', `${terminalShift}px`);
+        }
+      }
+      placePanel();
+    });
+  }
+  window.visualViewport?.addEventListener('resize', syncViewport);
+  window.visualViewport?.addEventListener('scroll', syncViewport);
+  window.addEventListener('resize', syncViewport);
+  document.addEventListener('focusin', syncViewport);
+  function watchCursor() {
+    if (!window.term) { setTimeout(watchCursor, 100); return; }
+    window.term.onWriteParsed(syncViewport);
+    window.term.onCursorMove(syncViewport);
+    window.term.onScroll(syncViewport);
+    syncViewport();
+  }
+  watchCursor();
+  syncViewport();
+})();
+</script>
