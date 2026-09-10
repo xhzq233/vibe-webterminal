@@ -1,6 +1,6 @@
 # Vibe Webterminal
 
-在自己的 Mac 上运行 Web Terminal，通过内网用 iPad 或其他浏览器操作。基于 ttyd，带触摸面板、方向键、清屏和贴边收起，按需启动。
+在自己的 Mac 上运行 Web Terminal，通过内网用 iPad 或其他浏览器操作。基于 ttyd，带触摸面板、方向键、清屏和贴边收起，按需启动，自动接入 Herdr 持久会话。
 
 ## 快速上手
 
@@ -13,7 +13,7 @@ cd vibe-webterminal
 ./start.sh
 ```
 
-首次 setup 会安装缺少的依赖并编译 ttyd。start 会打印当前内网访问地址，在 iPad 浏览器打开即可。
+首次 setup 会安装 Herdr 等缺少的依赖并编译 ttyd。start 会打印当前内网访问地址，在 iPad 浏览器打开即可。
 
 在 Mac 另开终端查看自动生成的登录信息：
 
@@ -21,7 +21,7 @@ cd vibe-webterminal
 cat ~/.local/share/vibe-webterminal/credential
 ```
 
-格式为 `username:password`，每次新部署独立生成。启动服务的终端保持打开，在该窗口按 **Ctrl+C** 停止服务；不安装任何自动启动项。
+格式为 `username:password`，每次新部署独立生成。启动服务的终端保持打开，在该窗口按 **Ctrl+C** 停止网页服务；Herdr 和其中的任务继续运行。不安装任何自动启动项。
 
 ```sh
 # 指定自己的项目目录
@@ -33,6 +33,29 @@ PORT=7682 ./start.sh
 # 指定网卡 IP，而不是默认路由地址
 BIND_IP=你的内网IP ./start.sh
 ```
+
+## 自动保留 Codex 会话
+
+打开网页自动运行 `herdr --session vibe-webterminal`：首次创建后台会话，之后复用同一个会话。在 Herdr 面板中运行 `codex` 即可。首次 Herdr 引导按 Enter 继续；可用 Escape 关闭可选集成页面，断线保活不要求安装 Agent 集成。
+
+- iPad 灭屏、网页刷新、网络中断或停止 ttyd：只断开客户端，Herdr 中的 shell、Codex 和任务继续运行。
+- 再次启动网页服务并连接：自动回到该会话。多个标签页/设备共享此会话，不是互相隔离的账户。
+- 项目目录参数用于新会话初始目录；重连已有会话时保留其工作区和目录。
+- Mac 睡眠会暂停运行，关机或 Herdr 服务停止会结束进程；恢复 Agent 对话是另一项集成功能，不等同于进程存活。
+- 正常退出 Codex 后可留着 Herdr；要结束后台任务，明确停止对应会话。
+
+```sh
+# 在 Mac 终端直接进入同一会话
+herdr --session vibe-webterminal
+
+# 另一套独立会话
+VIBE_SESSION=another-project PORT=7682 ./start.sh /path/to/project
+
+# 结束该会话及其中的任务
+herdr session stop vibe-webterminal
+```
+
+首次接入前已经在旧版网页 shell 中运行的任务不会自动迁移。
 
 ## iPad 控件
 
@@ -73,8 +96,9 @@ if (n == 0) return true;
 ## 使用范围与限制
 
 - 默认是 HTTP + 登录密码，面向可信内网；没有提供 HTTPS 或公网部署方案。
-- 网页刷新或断线可能结束对应 shell。长任务需要跨断线保留时，在 shell 内使用 tmux。
+- 会话保活由 Herdr 后台负责，网页连接本身仍可能在 iPad 灭屏时断开。
 - 网络或 IP 改变后停止并重新启动，使用新打印的地址。必要时允许 macOS 入站连接。
+- 已使用 Herdr 0.9.0 验证：关闭浏览器后任务继续完成，重连复用同一 shell PID。
 - 已在 macOS 验证编译、首次生成凭据、认证、真实 shell 命令。缺少/错误 token 被拒绝，正确 token 不带 WebSocket Basic 请求头也能连接。
 - 面板、贴边收起、方向键、清屏和键盘定位经过浏览器模拟测试；**真实 iPad 的键盘、输入法及长期性能仍未完成验收**。
 
