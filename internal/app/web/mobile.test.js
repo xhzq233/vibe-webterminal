@@ -1,0 +1,899 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const vm = require("node:vm");
+
+const source = fs.readFileSync(path.join(__dirname, "mobile.js"), "utf8");
+
+function loadMobile({
+  userAgent,
+  platform = "",
+  maxTouchPoints,
+  layoutHeight = 1024,
+  layoutWidth = 1366,
+}) {
+  const styles = new Map();
+  const documentListeners = new Map();
+  const viewportListeners = new Map();
+  const noop = () => {};
+  let nextTimer = 1;
+
+  const visualViewport = {
+    height: layoutHeight,
+    width: layoutWidth,
+    offsetTop: 0,
+    offsetLeft: 0,
+    pageTop: 0,
+    pageLeft: 0,
+    addEventListener(name, listener) {
+      viewportListeners.set(name, listener);
+    },
+  };
+  const window = {
+    visualViewport,
+    innerHeight: layoutHeight,
+    innerWidth: layoutWidth,
+    scrollY: 0,
+    scrollX: 0,
+    addEventListener: noop,
+    dispatchEvent: noop,
+    matchMedia: () => ({ matches: false }),
+    setTimeout(callback) {
+      callback();
+      return nextTimer++;
+    },
+  };
+  const terminalInputs = [];
+  window.term = {
+    input(data, wasUserInput) {
+      terminalInputs.push({ data, wasUserInput });
+    },
+  };
+  const document = {
+    documentElement: {
+      style: {
+        setProperty(name, value) {
+          styles.set(name, value);
+        },
+      },
+    },
+    body: {},
+    addEventListener(name, listener) {
+      documentListeners.set(name, listener);
+    },
+    querySelector: () => null,
+  };
+  const context = {
+    window,
+    document,
+    navigator: { userAgent, platform, maxTouchPoints },
+    Event: class {},
+    MutationObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame(callback) {
+      callback();
+      return nextTimer++;
+    },
+    cancelAnimationFrame: noop,
+    clearTimeout: noop,
+  };
+
+  vm.runInNewContext(source, context, { filename: "mobile.js" });
+
+  return {
+    styles,
+    terminalInputs,
+    dispatchBeforeInput(overrides = {}) {
+      let prevented = false;
+      let stopped = false;
+      const target = overrides.target || {
+        classList: { contains: (name) => name === "xterm-helper-textarea" },
+        selectionEnd: 2,
+        selectionStart: 2,
+        value: "中文",
+        setSelectionRange(start, end) {
+          this.selectionStart = start;
+          this.selectionEnd = end;
+        },
+      };
+      documentListeners.get("beforeinput")({
+        cancelable: true,
+        data: "，",
+        defaultPrevented: false,
+        inputType: "insertText",
+        isComposing: false,
+        target,
+        preventDefault() {
+          prevented = true;
+        },
+        stopImmediatePropagation() {
+          stopped = true;
+        },
+        ...overrides,
+      });
+      return { prevented, stopped, target };
+    },
+    dispatchInput(overrides = {}) {
+      let stopped = false;
+      documentListeners.get("input")({
+        data: "，",
+        inputType: "insertText",
+        stopImmediatePropagation() {
+          stopped = true;
+        },
+        ...overrides,
+      });
+      return { stopped };
+    },
+    updateViewport({ height, width = layoutWidth, top = 0, left = 0 }) {
+      visualViewport.height = height;
+      visualViewport.width = width;
+      visualViewport.offsetTop = top;
+      visualViewport.offsetLeft = left;
+      visualViewport.pageTop = top;
+      visualViewport.pageLeft = left;
+      documentListeners.get("focusin")();
+    },
+  };
+}
+
+function loadTouchMobile({
+  copyEventSupported = true,
+  deferTimers = false,
+  promptValue = null,
+  selection = "selected text",
+} = {}) {
+  const documentListeners = new Map();
+  const rootClasses = new Set();
+  const rootStyles = new Map();
+  const terminalInputs = [];
+  const terminalPastes = [];
+  const terminalEvents = [];
+  const keyboardEvents = [];
+  const prompts = [];
+  const mutationObservers = [];
+  const pendingTimers = new Map();
+  const writeParsedListeners = [];
+  let screenBufferType = "alternate";
+  let screenCursorY = 0;
+  let screenLines = [];
+  let currentSelection = selection;
+  let copiedText = "";
+  let keyboardFocuses = 0;
+  let nextTimer = 1;
+  let selectedControl = null;
+  let terminalFits = 0;
+  let document;
+
+  function setTimer(callback, delay = 0) {
+    const timer = nextTimer++;
+    if (delay >= 1000) return timer; // Connection retries are exercised against real ttyd in browser tests.
+    if (deferTimers) pendingTimers.set(timer, callback);
+    else callback();
+    return timer;
+  }
+
+  function clearTimer(timer) {
+    pendingTimers.delete(timer);
+  }
+
+  function createElement(tagName) {
+    const listeners = new Map();
+    const element = {
+      tagName: tagName.toUpperCase(),
+      children: [],
+      dataset: {},
+      style: {},
+      attributes: new Map(),
+      className: "",
+      innerHTML: "",
+      hidden: false,
+      disabled: false,
+      readOnly: false,
+      textContent: "",
+      value: "",
+      parentNode: null,
+      classList: {
+        contains(name) {
+          return element.className.split(/\s+/).includes(name);
+        },
+      },
+      addEventListener(name, listener) {
+        const registered = listeners.get(name) || [];
+        registered.push(listener);
+        listeners.set(name, registered);
+      },
+      appendChild(child) {
+        child.parentNode = element;
+        element.children.push(child);
+        return child;
+      },
+      contains(target) {
+        return target === element || element.children.some((child) => child.contains?.(target));
+      },
+      closest(selector) {
+        const names = selector
+          .split(",")
+          .map((part) => part.trim().replace(/^\./, ""))
+          .filter(Boolean);
+        let node = element;
+        while (node) {
+          const own = (node.className || "").split(/\s+/);
+          if (names.some((name) => own.includes(name))) return node;
+          node = node.parentNode;
+        }
+        return null;
+      },
+      querySelector(selector) {
+        const className = selector.startsWith(".") ? selector.slice(1) : "";
+        for (const child of element.children) {
+          if (className && child.classList?.contains(className)) return child;
+          const nested = child.querySelector?.(selector);
+          if (nested) return nested;
+        }
+        return null;
+      },
+      setAttribute(name, value) {
+        element.attributes.set(name, String(value));
+      },
+      getAttribute(name) {
+        return element.attributes.get(name) || null;
+      },
+      dispatchEvent(event) {
+        if (element === helper) keyboardEvents.push(event);
+        for (const listener of listeners.get(event.type) || []) listener(event);
+        return !event.defaultPrevented;
+      },
+      focus() {
+        document.activeElement = element;
+        if (["INPUT", "TEXTAREA"].includes(element.tagName) && !element.readOnly) keyboardFocuses += 1;
+      },
+      select() {
+        selectedControl = element;
+      },
+      setSelectionRange() {
+        selectedControl = element;
+      },
+      remove() {
+        if (!element.parentNode) return;
+        element.parentNode.children = element.parentNode.children.filter((child) => child !== element);
+        element.parentNode = null;
+      },
+      listeners,
+    };
+    return element;
+  }
+
+  const rootElement = createElement("html");
+  rootElement.style.setProperty = (name, value) => rootStyles.set(name, value);
+  rootElement.classList = {
+    contains: (name) => rootClasses.has(name),
+    toggle(name, enabled) {
+      if (enabled) rootClasses.add(name);
+      else rootClasses.delete(name);
+    },
+  };
+  const body = createElement("body");
+  const terminal = createElement("div");
+  terminal.className = "xterm";
+  const helper = createElement("textarea");
+  helper.className = "xterm-helper-textarea";
+  terminal.appendChild(helper);
+
+  function dispatchDocument(name, event) {
+    for (const listener of documentListeners.get(name) || []) listener(event);
+  }
+
+  document = {
+    documentElement: rootElement,
+    body,
+    activeElement: body,
+    createElement,
+    addEventListener(name, listener) {
+      const registered = documentListeners.get(name) || [];
+      registered.push(listener);
+      documentListeners.set(name, registered);
+    },
+    querySelector(selector) {
+      if (selector === ".xterm") return terminal;
+      if (selector === ".xterm-helper-textarea") return helper;
+      return null;
+    },
+    elementFromPoint: () => terminal,
+    getSelection: () => ({ toString: () => "" }),
+    execCommand(command) {
+      if (command !== "copy" || !selectedControl) return false;
+      if (copyEventSupported) {
+        for (const listener of selectedControl.listeners.get("copy") || []) {
+          listener({
+            clipboardData: {
+              setData(type, value) {
+                if (type === "text/plain") copiedText = value;
+              },
+            },
+            preventDefault() {},
+          });
+        }
+      }
+      // WebKit may report false even when the copy event accepted text.
+      return false;
+    },
+  };
+
+  const visualViewport = {
+    height: 1024,
+    width: 1366,
+    offsetTop: 0,
+    offsetLeft: 0,
+    pageTop: 0,
+    pageLeft: 0,
+    addEventListener() {},
+  };
+  const window = {
+    visualViewport,
+    innerHeight: 1024,
+    innerWidth: 1366,
+    scrollY: 0,
+    scrollX: 0,
+    isSecureContext: false,
+    addEventListener() {},
+    dispatchEvent() {},
+    matchMedia: () => ({ matches: true }),
+    setTimeout: setTimer,
+    prompt(...args) {
+      prompts.push(args);
+      return promptValue;
+    },
+  };
+  window.term = {
+    buffer: {
+      active: {
+        get length() {
+          return screenLines.length;
+        },
+        get type() {
+          return screenBufferType;
+        },
+        baseY: 0,
+        get cursorY() {
+          return screenCursorY;
+        },
+        viewportY: 0,
+        getLine(row) {
+          const text = screenLines[row];
+          if (text === undefined) return undefined;
+          return { translateToString: () => text };
+        },
+      },
+    },
+    rows: 40,
+    fit() {
+      terminalFits += 1;
+    },
+    input(data, wasUserInput) {
+      terminalInputs.push({ data, wasUserInput });
+      terminalEvents.push({ data, type: "input" });
+    },
+    paste(data) {
+      terminalPastes.push(data);
+      terminalEvents.push({ data, type: "paste" });
+    },
+    getSelection: () => currentSelection,
+    focus() {
+      helper.focus();
+    },
+    onWriteParsed(listener) {
+      writeParsedListeners.push(listener);
+      return { dispose() {} };
+    },
+  };
+
+  const context = {
+    window,
+    document,
+    navigator: {
+      userAgent: "Mozilla/5.0 (iPad) Version/26.0 Mobile/15E148 Safari/604.1",
+      platform: "iPad",
+      maxTouchPoints: 5,
+    },
+    Event: class {},
+    KeyboardEvent: class {
+      constructor(type, init) {
+        this.type = type;
+        Object.assign(this, init);
+      }
+    },
+    performance: { now: () => 0 },
+    MutationObserver: class {
+      constructor(callback) {
+        this.callback = callback;
+        mutationObservers.push(this);
+      }
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame(callback) {
+      callback();
+      return 1;
+    },
+    cancelAnimationFrame() {},
+    clearTimeout: clearTimer,
+  };
+  vm.runInNewContext(source, context, { filename: "mobile.js" });
+
+  const copyButton = terminal.children.find((child) => child.className === "herdr-tty-copy-button");
+  const toolbar = body.children.find((child) => child.className === "herdr-tty-input-toolbar");
+
+  return {
+    copyButton,
+    toolbar,
+    terminal,
+    terminalInputs,
+    terminalPastes,
+    terminalEvents,
+    keyboardEvents,
+    prompts,
+    get keyboardFocuses() {
+      return keyboardFocuses;
+    },
+    get terminalFits() {
+      return terminalFits;
+    },
+    get terminalInputReadOnly() {
+      return helper.readOnly;
+    },
+    get copiedText() {
+      return copiedText;
+    },
+    focusTerminal() {
+      helper.focus();
+      dispatchDocument("focusin", { target: helper });
+    },
+    focusPasteInput() {
+      const input = toolbar.querySelector(".herdr-tty-paste-input");
+      input.focus();
+      dispatchDocument("focusin", { target: input });
+    },
+    async click(element) {
+      if (element.disabled) return;
+      const event = { preventDefault() {}, stopPropagation() {} };
+      for (const listener of element.listeners.get("click") || []) listener(event);
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+    clickPage(element) {
+      let prevented = false;
+      let stopped = false;
+      dispatchDocument("click", {
+        target: element,
+        preventDefault() {
+          prevented = true;
+        },
+        stopImmediatePropagation() {
+          stopped = true;
+        },
+      });
+      return { prevented, stopped };
+    },
+    trigger(element, name) {
+      const event = { preventDefault() {}, stopPropagation() {} };
+      for (const listener of element.listeners.get(name) || []) listener(event);
+    },
+    setSelection(value) {
+      currentSelection = value;
+    },
+    setConnectionOverlay(message) {
+      let overlay = terminal.children.find(
+        (child) => child.dataset.herdrWebTest === "connection-overlay",
+      );
+      if (!overlay) {
+        overlay = createElement("div");
+        overlay.dataset.herdrWebTest = "connection-overlay";
+        terminal.appendChild(overlay);
+      }
+      overlay.textContent = message;
+      for (const observer of mutationObservers) observer.callback([]);
+    },
+    setTerminalScreen(lines, { cursorY = 0, type = "alternate" } = {}) {
+      screenLines = lines;
+      screenCursorY = cursorY;
+      screenBufferType = type;
+      for (const listener of writeParsedListeners) listener();
+    },
+    get pasteInputFocused() {
+      return document.activeElement === toolbar.querySelector(".herdr-tty-paste-input");
+    },
+    toolbarButton(name) {
+      function find(node) {
+        if (node.dataset.action === name) return node;
+        for (const child of node.children) {
+          const button = find(child);
+          if (button) return button;
+        }
+      }
+      return find(toolbar);
+    },
+    get pasteInput() {
+      return toolbar.querySelector(".herdr-tty-paste-input");
+    },
+    rootHasClass(name) {
+      return rootClasses.has(name);
+    },
+    rootStyle(name) {
+      return rootStyles.get(name);
+    },
+    runTimers() {
+      while (pendingTimers.size > 0) {
+        const timers = [...pendingTimers.values()];
+        pendingTimers.clear();
+        for (const callback of timers) callback();
+      }
+    },
+    mouseDownTerminal() {
+      dispatchDocument("mousedown", { target: terminal });
+      // Model xterm's target-phase mousedown handler, which focuses its hidden
+      // textarea before forwarding the mouse report to the terminal app.
+      helper.focus();
+    },
+    touchTerminal(name, touches, changedTouches = []) {
+      let prevented = false;
+      let stopped = false;
+      const event = {
+        changedTouches,
+        target: terminal,
+        touches,
+        preventDefault() {
+          prevented = true;
+        },
+        stopImmediatePropagation() {
+          stopped = true;
+        },
+      };
+      for (const listener of terminal.listeners.get(name) || []) listener(event);
+      return { prevented, stopped };
+    },
+    dispatchContextMenu(target) {
+      let prevented = false;
+      dispatchDocument("contextmenu", {
+        target,
+        preventDefault() {
+          prevented = true;
+        },
+      });
+      return prevented;
+    },
+  };
+}
+
+test("copy button writes the xterm selection on LAN HTTP", async () => {
+  const runtime = loadTouchMobile({ selection: "draft command" });
+
+  await runtime.click(runtime.copyButton);
+
+  assert.equal(runtime.copiedText, "draft command");
+  assert.equal(runtime.copyButton.hidden, true);
+  assert.equal(runtime.copyButton.disabled, false);
+});
+
+test("copy button preserves selection before focus clears it", async () => {
+  const runtime = loadTouchMobile({ selection: "captured text" });
+
+  runtime.trigger(runtime.copyButton, "pointerdown");
+  runtime.setSelection("");
+  await runtime.click(runtime.copyButton);
+
+  assert.equal(runtime.copiedText, "captured text");
+  assert.equal(runtime.copyButton.hidden, true);
+});
+
+test("copy button offers a native manual field when WebKit rejects programmatic copy", async () => {
+  const runtime = loadTouchMobile({ copyEventSupported: false, selection: "manual text" });
+
+  await runtime.click(runtime.copyButton);
+
+  assert.deepEqual(runtime.prompts, [["Copy selected text", "manual text"]]);
+  assert.equal(runtime.copyButton.hidden, true);
+  assert.equal(runtime.copyButton.disabled, false);
+});
+
+test("terminal taps stay guarded through the compatibility mousedown", () => {
+  const runtime = loadTouchMobile({ deferTimers: true });
+  const touch = { clientX: 120, clientY: 80 };
+
+  runtime.touchTerminal("touchstart", [touch]);
+  assert.equal(runtime.terminalInputReadOnly, true);
+  runtime.touchTerminal("touchend", [], [touch]);
+  assert.equal(runtime.terminalInputReadOnly, true);
+
+  runtime.mouseDownTerminal();
+  assert.equal(runtime.keyboardFocuses, 0);
+  assert.equal(runtime.terminalInputReadOnly, true);
+
+  runtime.runTimers();
+  assert.equal(runtime.terminalInputReadOnly, false);
+});
+
+test("floating composer stays visible and only its input opens the keyboard", () => {
+  const runtime = loadTouchMobile({ deferTimers: true });
+  const touch = { clientX: 120, clientY: 80 };
+  const fitsBeforeTap = runtime.terminalFits;
+
+  assert.equal(runtime.toolbar.hidden, false);
+  runtime.touchTerminal("touchstart", [touch]);
+  assert.equal(runtime.toolbar.hidden, false);
+  assert.equal(runtime.terminalFits, fitsBeforeTap);
+  runtime.touchTerminal("touchend", [], [touch]);
+  runtime.mouseDownTerminal();
+  assert.equal(runtime.toolbar.hidden, false);
+  assert.equal(runtime.terminalFits, fitsBeforeTap);
+
+  runtime.touchTerminal("click", []);
+  assert.equal(runtime.toolbar.hidden, false);
+  assert.equal(runtime.terminalFits, fitsBeforeTap);
+  assert.equal(runtime.keyboardFocuses, 0);
+
+  runtime.focusPasteInput();
+  assert.equal(runtime.keyboardFocuses, 1);
+  runtime.runTimers();
+});
+
+test("Herdr text dialogs focus the mobile composer once when they open", () => {
+  const runtime = loadTouchMobile();
+  const dialog = [
+    "╭────────────────────────────────────╮",
+    "│ new tab                            │",
+    "│ draft█                             │",
+    "│ ↵ save    ^c clear    esc cancel   │",
+    "╰────────────────────────────────────╯",
+  ];
+
+  runtime.setTerminalScreen(dialog, { cursorY: 4 });
+
+  assert.equal(runtime.toolbar.hidden, false);
+  assert.equal(runtime.pasteInputFocused, true);
+  assert.equal(runtime.keyboardFocuses, 1);
+
+  runtime.focusTerminal();
+  runtime.setTerminalScreen(dialog, { cursorY: 4 });
+  assert.equal(runtime.pasteInputFocused, false);
+  assert.equal(runtime.keyboardFocuses, 2);
+
+  runtime.setTerminalScreen(["regular Herdr screen"]);
+  runtime.setTerminalScreen([
+    "╭────────────────────────────────────╮",
+    "│ rename pane                        │",
+    "│                                    │",
+    "│ ↵ save    ^c clear    esc cancel   │",
+    "╰────────────────────────────────────╯",
+  ], { cursorY: 2 });
+  assert.equal(runtime.pasteInputFocused, true);
+  assert.equal(runtime.keyboardFocuses, 3);
+});
+
+test("ordinary terminal text does not trigger Herdr dialog focus", () => {
+  const runtime = loadTouchMobile();
+
+  runtime.setTerminalScreen([
+    "documentation for a new tab",
+    "the save and clear actions are described here",
+  ]);
+  assert.equal(runtime.pasteInputFocused, false);
+  assert.equal(runtime.keyboardFocuses, 0);
+
+  runtime.setTerminalScreen([
+    "new tab",
+    "source text █",
+    "save clear cancel",
+    "$ ",
+  ], { cursorY: 3 });
+  assert.equal(runtime.pasteInputFocused, false);
+  assert.equal(runtime.keyboardFocuses, 0);
+
+  runtime.setTerminalScreen([
+    "│ rename pane                         │",
+    "│ ↵ save    ^c clear    esc cancel    │",
+  ], { cursorY: 1, type: "normal" });
+  assert.equal(runtime.pasteInputFocused, false);
+  assert.equal(runtime.keyboardFocuses, 0);
+});
+
+test("Send pastes the draft and Panel Enter sends only return", async () => {
+  const runtime = loadTouchMobile();
+
+  runtime.focusTerminal();
+
+  assert.equal(runtime.toolbar.hidden, false);
+  runtime.focusPasteInput();
+  assert.equal(runtime.toolbar.hidden, false);
+  assert.equal(runtime.toolbarButton("escape").textContent, "Esc");
+  await runtime.click(runtime.toolbarButton("escape"));
+  runtime.pasteInput.value = "draft command";
+  runtime.trigger(runtime.pasteInput, "input");
+  await runtime.click(runtime.toolbarButton("input"));
+  assert.equal(runtime.pasteInput.value, "draft command");
+  assert.deepEqual(runtime.terminalPastes, []);
+  await runtime.click(runtime.toolbarButton("send"));
+  assert.equal(runtime.pasteInput.value, "");
+  await runtime.click(runtime.toolbarButton("input"));
+  assert.deepEqual(runtime.terminalInputs, [
+    { data: "\x1b", wasUserInput: true },
+    { data: "\r", wasUserInput: true },
+    { data: "\r", wasUserInput: true },
+  ]);
+  assert.deepEqual(runtime.terminalPastes, ["draft command"]);
+  assert.deepEqual(runtime.terminalEvents, [
+    { data: "\x1b", type: "input" },
+    { data: "\r", type: "input" },
+    { data: "draft command", type: "paste" },
+    { data: "\r", type: "input" },
+  ]);
+});
+
+test("reconnect input dispatches ttyd Enter and preserves the draft", async () => {
+  const runtime = loadTouchMobile();
+
+  runtime.focusTerminal();
+  runtime.pasteInput.value = "keep this command";
+  runtime.setConnectionOverlay("Press ⏎ to Reconnect");
+
+  const escape = runtime.toolbarButton("escape");
+  const input = runtime.toolbarButton("input");
+  assert.equal(escape.disabled, true);
+  assert.equal(input.disabled, false);
+  assert.equal(input.getAttribute("aria-label"), "Reconnect");
+  assert.match(input.innerHTML, /<svg/);
+
+  await runtime.click(escape);
+  await runtime.click(input);
+
+  assert.equal(runtime.pasteInput.value, "keep this command");
+  assert.deepEqual(runtime.terminalInputs, []);
+  assert.deepEqual(runtime.terminalPastes, []);
+  assert.equal(runtime.keyboardEvents.length, 1);
+  assert.equal(runtime.keyboardEvents[0].type, "keydown");
+  assert.equal(runtime.keyboardEvents[0].key, "Enter");
+  assert.equal(runtime.keyboardEvents[0].code, "Enter");
+  assert.equal(input.disabled, true);
+  assert.equal(input.getAttribute("aria-label"), "Reconnecting");
+
+  runtime.setConnectionOverlay("Reconnected");
+  assert.equal(escape.disabled, false);
+  assert.equal(input.disabled, false);
+
+  await runtime.click(runtime.toolbarButton("send"));
+  assert.deepEqual(runtime.terminalInputs, []);
+  await runtime.click(input);
+  assert.equal(runtime.pasteInput.value, "");
+  assert.deepEqual(runtime.terminalPastes, ["keep this command"]);
+  assert.deepEqual(runtime.terminalInputs, [{ data: "\r", wasUserInput: true }]);
+});
+
+test("any page click reconnects once when the connection is closed", () => {
+  const runtime = loadTouchMobile();
+
+  assert.deepEqual(runtime.clickPage(runtime.terminal), {
+    prevented: false,
+    stopped: false,
+  });
+  assert.equal(runtime.keyboardEvents.length, 0);
+
+  runtime.pasteInput.value = "keep this command";
+  runtime.setConnectionOverlay("Connection Closed");
+
+  assert.deepEqual(runtime.clickPage(runtime.terminal), {
+    prevented: true,
+    stopped: true,
+  });
+  assert.equal(runtime.keyboardEvents.length, 1);
+  assert.equal(runtime.keyboardEvents[0].key, "Enter");
+  assert.equal(runtime.pasteInput.value, "keep this command");
+  assert.equal(runtime.toolbarButton("input").disabled, true);
+
+  assert.deepEqual(runtime.clickPage(runtime.pasteInput), {
+    prevented: false,
+    stopped: false,
+  });
+  assert.equal(runtime.keyboardEvents.length, 1);
+});
+
+test("reconnecting disables terminal actions without disabling draft editing", async () => {
+  const runtime = loadTouchMobile();
+
+  runtime.focusTerminal();
+  runtime.pasteInput.value = "editable draft";
+  runtime.setConnectionOverlay("Reconnecting...");
+
+  assert.equal(runtime.toolbarButton("escape").disabled, true);
+  assert.equal(runtime.toolbarButton("input").disabled, true);
+  assert.equal(runtime.pasteInput.disabled, false);
+  await runtime.click(runtime.toolbarButton("input"));
+  assert.equal(runtime.pasteInput.value, "editable draft");
+  assert.deepEqual(runtime.terminalEvents, []);
+});
+
+test("context menu is allowed only on the paste input", () => {
+  const runtime = loadTouchMobile();
+
+  // Long-press paste menus must keep working on the bottom input...
+  assert.equal(runtime.dispatchContextMenu(runtime.pasteInput), false);
+  // ...while the terminal keeps its menu suppressed (two-finger right-click)...
+  assert.equal(runtime.dispatchContextMenu(runtime.terminal), true);
+  // ...and the rest of the toolbar gets no free pass either.
+  assert.equal(runtime.dispatchContextMenu(runtime.toolbar), true);
+});
+
+test("iOS virtual Chinese punctuation is forwarded as non-composition input", () => {
+  const runtime = loadMobile({
+    userAgent: "Mozilla/5.0 (iPhone) CriOS/140.0 Mobile/15E148 Safari/604.1",
+    maxTouchPoints: 5,
+  });
+
+  const result = runtime.dispatchBeforeInput({ data: "，。！？" });
+
+  assert.equal(result.prevented, true);
+  assert.equal(result.stopped, true);
+  assert.deepEqual(runtime.terminalInputs, [{ data: "，。！？", wasUserInput: true }]);
+});
+
+test("non-cancelable iOS punctuation is restored and forwarded once on input", () => {
+  const runtime = loadMobile({
+    userAgent: "Mozilla/5.0 (iPhone) Version/26.0 Mobile/15E148 Safari/604.1",
+    maxTouchPoints: 5,
+  });
+
+  const before = runtime.dispatchBeforeInput({ cancelable: false, data: "、" });
+  assert.equal(before.prevented, false);
+  assert.equal(before.stopped, true);
+  assert.deepEqual(runtime.terminalInputs, []);
+
+  before.target.value = "中文、";
+  before.target.selectionStart = before.target.selectionEnd = 3;
+  const input = runtime.dispatchInput({ data: "、", target: before.target });
+
+  assert.equal(input.stopped, true);
+  assert.equal(before.target.value, "中文");
+  assert.equal(before.target.selectionStart, 2);
+  assert.equal(before.target.selectionEnd, 2);
+  assert.deepEqual(runtime.terminalInputs, [{ data: "、", wasUserInput: true }]);
+});
+
+for (const input of [
+  { name: "ordinary text", overrides: { data: "中" } },
+  { name: "active composition", overrides: { isComposing: true } },
+  { name: "deletion", overrides: { data: null, inputType: "deleteContentBackward" } },
+  {
+    name: "non-terminal input",
+    overrides: { target: { classList: { contains: () => false }, dispatchEvent() {} } },
+  },
+]) {
+  test(`iOS punctuation fallback ignores ${input.name}`, () => {
+    const runtime = loadMobile({
+      userAgent: "Mozilla/5.0 (iPhone) Version/26.0 Mobile/15E148 Safari/604.1",
+      maxTouchPoints: 5,
+    });
+
+    const result = runtime.dispatchBeforeInput(input.overrides);
+
+    assert.equal(result.prevented, false);
+    assert.equal(result.stopped, false);
+    assert.deepEqual(runtime.terminalInputs, []);
+  });
+}
+
+test("non-iOS virtual keyboards keep native input handling", () => {
+  const runtime = loadMobile({
+    userAgent: "Mozilla/5.0 (Linux; Android 16) Chrome/140.0 Mobile Safari/537.36",
+    maxTouchPoints: 5,
+  });
+
+  const result = runtime.dispatchBeforeInput({ data: "，" });
+
+  assert.equal(result.prevented, false);
+  assert.equal(result.stopped, false);
+  assert.deepEqual(runtime.terminalInputs, []);
+});

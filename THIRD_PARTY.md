@@ -1,4 +1,16 @@
-# Components
-- ttyd 1.7.7: https://github.com/tsl0922/ttyd (MIT; vendor/ttyd/LICENSE). Local patch in src/protocol.c allows missing WebSocket Authorization headers to proceed to existing AuthToken validation. HTTP auth, incorrect-header rejection and origin checks remain enabled.
-- interact.js 1.10.28: https://github.com/taye/interact.js (MIT; web/interact-LICENSE).
-- Original ttyd frontend includes xterm.js and dependencies. Sources/notices: https://github.com/tsl0922/ttyd/tree/1.7.7/html .
+# Third-party components
+
+The Go gateway and browser integration are adapted from
+[dark2momo/herdr-tty](https://github.com/dark2momo/herdr-tty), via our
+[xhzq233/herdr-tty fork](https://github.com/xhzq233/herdr-tty) at commit
+`dba09a2`. The upstream MIT license is retained in
+[third_party/herdr-tty.LICENSE](third_party/herdr-tty.LICENSE).
+
+Runtime dependencies, installed separately:
+
+- [ttyd](https://github.com/tsl0922/ttyd): MIT; includes xterm.js and its frontend
+  dependencies. This version uses stock ttyd and no local Basic-auth patch.
+- [Herdr](https://herdr.dev): persistent terminal sessions and native tabs.
+
+The floating panel uses native JavaScript and CSS. interact.js and the old
+vendored ttyd build are no longer part of this distribution.

@@ -1,14 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
-if ! command -v brew >/dev/null; then echo 'Install Homebrew first: https://brew.sh'; exit 1; fi
+if [ "$(uname -s)" != Darwin ]; then echo 'This setup script is for macOS. See README for manual builds.'; exit 1; fi
 if ! xcode-select -p >/dev/null 2>&1; then echo 'Run xcode-select --install first.'; exit 1; fi
 missing=()
-for package in cmake libuv json-c libwebsockets openssl@3 herdr; do
-  if ! brew list --versions "$package" >/dev/null 2>&1; then missing+=("$package"); fi
+for package in go ttyd herdr; do
+  if ! command -v "$package" >/dev/null 2>&1; then missing+=("$package"); fi
 done
-if [ "${#missing[@]}" -gt 0 ]; then brew install "${missing[@]}"; fi
-brew_prefix=$(brew --prefix)
-"$brew_prefix/bin/cmake" -S vendor/ttyd -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$brew_prefix" -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
-"$brew_prefix/bin/cmake" --build build -j 4
-echo 'Ready. Run ./start.sh [working-directory]'
+if [ "${#missing[@]}" -gt 0 ]; then
+  if ! command -v brew >/dev/null; then echo 'Install Homebrew first: https://brew.sh'; exit 1; fi
+  brew install "${missing[@]}"
+fi
+make build
+echo 'Ready. In a regular Mac terminal, run ./start.sh [working-directory]'

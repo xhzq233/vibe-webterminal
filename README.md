@@ -1,6 +1,8 @@
 # Vibe Webterminal
 
-在自己的 Mac 上运行 Web Terminal，通过内网用 iPad 或其他浏览器操作。基于 ttyd，带触摸面板、方向键、清屏和贴边收起，按需启动，自动接入 Herdr 持久会话。
+把自己的 Mac 终端放进浏览器，在可信内网中用 iPad 操作 Codex、运行命令。支持顶部多 tab、可拖动的多行输入面板，以及断线后继续运行的 Herdr 会话。
+
+当前版本基于 [herdr-tty](https://github.com/dark2momo/herdr-tty) 的 Go 网关，使用标准 [ttyd](https://github.com/tsl0922/ttyd) 和 [Herdr](https://herdr.dev)。源码已包含本项目的 Panel、键盘适配和重连改动，克隆本仓库即可构建。
 
 ## 快速上手
 
@@ -13,111 +15,132 @@ cd vibe-webterminal
 ./start.sh
 ```
 
-首次 setup 会安装 Herdr 等缺少的依赖并编译 ttyd。start 会打印当前内网访问地址，在 iPad 浏览器打开即可。
+`setup.sh` 安装缺少的 Go、ttyd、Herdr，并编译本项目。**请在普通 Mac 终端中运行 `start.sh`，不要从 Herdr 内部的 pane 启动网页服务。** 网页仍可接入已有 Herdr 会话。
 
-在 Mac 另开终端查看自动生成的登录信息：
+启动后打开打印出的地址，默认端口为 7681。在 Mac 另开终端查看登录信息：
 
 ```sh
 cat ~/.local/share/vibe-webterminal/credential
 ```
 
-格式为 `username:password`，每次新部署独立生成。启动服务的终端保持打开，在该窗口按 **Ctrl+C** 停止网页服务；Herdr 和其中的任务继续运行。不安装任何自动启动项。
+格式为 `username:password`，在网页登录表单中填写。首次部署生成独立密码；重复启动、更新代码均复用现有密码。不要分享该文件。
+
+保持启动服务的终端打开。在该窗口按 **Ctrl+C** 只停止网页访问，Herdr 和其中的任务继续运行。项目不安装开机自启项。
 
 ```sh
-# 指定自己的项目目录
+# 指定新会话的项目目录
 ./start.sh /path/to/your/project
 
-# 修改端口
+# 更换端口或指定本机 IPv4 地址
 PORT=7682 ./start.sh
-
-# 指定网卡 IP，而不是默认路由地址
 BIND_IP=你的内网IP ./start.sh
+
+# 创建另一套独立会话
+VIBE_SESSION=another-project PORT=7682 ./start.sh /path/to/project
 ```
 
-## 自动保留 Codex 会话
+## Panel 操作
 
-打开网页自动运行 `herdr --session vibe-webterminal`：首次创建后台会话，之后复用同一个会话。在 Herdr 面板中运行 `codex` 即可。首次 Herdr 引导按 Enter 继续；可用 Escape 关闭可选集成页面，断线保活不要求安装 Agent 集成。
+![顶部 tab 和多行输入 Panel](docs/panel.png)
 
-- iPad 灭屏、网页刷新、网络中断或停止 ttyd：只断开客户端，Herdr 中的 shell、Codex 和任务继续运行。
-- 再次启动网页服务并连接：自动回到该会话。多个标签页/设备共享此会话，不是互相隔离的账户。
-- 项目目录参数用于新会话初始目录；重连已有会话时保留其工作区和目录。
-- Mac 睡眠会暂停运行，关机或 Herdr 服务停止会结束进程；恢复 Agent 对话是另一项集成功能，不等同于进程存活。
-- 正常退出 Codex 后可留着 Herdr；要结束后台任务，明确停止对应会话。
+Panel 默认位于可见区域上方，给终端底部输入区留出空间。拖动按钮或面板背景可以调整位置；靠近边缘不会缩小或隐藏。输入框支持多行显示，长草稿可在框内滚动。
+
+| 操作 | 行为 |
+| --- | --- |
+| 输入框中的键盘 Enter | 只在草稿中换行，不发送到终端 |
+| Send | 把草稿粘贴到终端当前输入位置，清空草稿，但不发送回车 |
+| Panel Enter | 只向终端发送回车，不带上尚未 Send 的草稿 |
+| ↑ / ↓ / → | 终端方向键 |
+| Ctrl+C | 通常用于中断前台命令 |
+| Clear | 发送 Ctrl+L；由当前终端程序处理 |
+| Esc | 发送 Escape |
+
+在 Codex 中，先在 Panel 编辑内容，点 **Send** 放入 Codex 的输入区，确认后再点 **Enter** 提交。Send 是粘贴，不会先清空终端里已有的输入。终端程序如何处理多行粘贴由该程序决定。
+
+在终端上单指滑动会传给 Herdr，并保留惯性滚动；页面本身不会随手势平移。长按拖动可选中文字并复制，双指轻点发送右键。
+
+## 键盘弹出时
+
+- 终端行列数保持不变，Codex 不因软键盘出现而重新排版。
+- 终端底部始终对齐键盘上方的可见区域；上方内容暂时裁切，不留下空白条。
+- 收起键盘后恢复完整画面。旋转设备或真正改变浏览器窗口尺寸时，终端仍会适配新尺寸。
+- Panel 独立定位，默认靠上，并给底部输入和状态行留出空间。
+
+## 只保留顶部 tab
+
+如果希望隐藏 Herdr 侧边栏，将以下设置合并到 `~/.config/herdr/config.toml`。已有 `[ui]` 时修改其中的对应项，不要重复添加同名段：
+
+```toml
+[ui]
+sidebar_start_collapsed = true
+sidebar_collapsed_mode = "hidden"
+hide_tab_bar_when_single_tab = false
+tab_bar_position = "top"
+```
 
 ```sh
-# 在 Mac 终端直接进入同一会话
+herdr config check
+herdr --session vibe-webterminal server reload-config
+```
+
+然后断开并重新进入网页，让新客户端应用启动布局。顶部的「＋」用于新建 tab。配置作用于使用这份配置的 Herdr，不会停止现有任务。
+
+## 会话与自动重连
+
+网页默认接入 `herdr --session vibe-webterminal`。首次连接创建会话，之后复用。进入后运行 `codex` 即可；首次 Herdr 引导按提示完成，断线保活不要求安装可选 Agent 集成。
+
+- 刷新网页、iPad 灭屏断网或停止网页服务，只会断开客户端，Herdr 中的任务继续运行。
+- 网络恢复后自动重试连接；重连或登录恢复过程保留尚未发送的 Panel 草稿，恢复后不会自动提交。
+- 登录有效期默认 7 天。签名密钥保存在状态目录，重启网页服务不会使仍有效的登录失效；登录过期时自动转到登录页。
+- 多个网页共享同一会话。项目目录参数只用于创建新会话；重连保留原工作区和目录。
+- Mac 睡眠会暂停执行，关机或停止 Herdr 会结束进程；这不等同于 Agent 对话恢复。
+
+```sh
+# 在普通 Mac 终端进入同一会话
 herdr --session vibe-webterminal
 
-# 另一套独立会话
-VIBE_SESSION=another-project PORT=7682 ./start.sh /path/to/project
-
-# 结束该会话及其中的任务
+# 仅在确实要结束该会话及其中任务时执行
 herdr session stop vibe-webterminal
 ```
 
-首次接入前已经在旧版网页 shell 中运行的任务不会自动迁移。
+## 更新旧版
 
-## iPad 控件
-
-整个面板可拖动。停到左右边缘后松手，自动收成贴边标签；点击标签展开。
-
-面板下方的输入框用于先编辑再提交。输入框回车或点击 Enter 会把草稿粘贴到终端当前输入位置，再发送回车；不会先清掉终端中已有的文字。空框点击 Enter 只发送回车。提交后清空输入框，收起/展开面板保留未提交草稿（刷新网页不保留）。中文选词的确认回车不会直接提交。输入框内可正常选字，不触发面板拖动。
-
-| 控件 | 用途 |
-| --- | --- |
-| ↑ / ↓ / → | 方向键：切换历史命令或移动光标 |
-| Space | 输入框聚焦时插入草稿，否则向终端发送空格 |
-| Enter | 提交草稿并回车；空框时只向终端发送回车 |
-| Ctrl+C | 通常用于中断前台命令 |
-| ⤓ | 滚到输出最下面 |
-| Clear | 发送 Ctrl+L，在 zsh 中清屏并保留未提交的输入 |
-
-普通长输出可上下滑动，默认保留 1,000 行历史。Clear 不保证删除滚动历史；vim、less 等程序自行处理按键和滚动。
-
-键盘出现时只调整网页位置，按输入光标的位置避开遮挡；不在 VisualViewport 变化时调用终端 fit、改变行列数或重新连接。
-
-## Safari 认证修正如何工作
-
-部分 Safari WebSocket 连接不会携带页面登录时的 HTTP Basic `Authorization` 请求头。ttyd 1.7.7 原版在 WebSocket 握手过滤阶段要求该请求头，因此可能出现页面能打开、终端却一直重连。
-
-补丁位于 [vendor/ttyd/src/protocol.c](vendor/ttyd/src/protocol.c)，仅在 `check_auth` 中增加：
-
-```c
-// n is the copied Authorization header length.
-if (n == 0) return true;
-```
-
-这里的 `true` 只表示允许继续 WebSocket 握手，不表示允许创建 shell：
-
-1. 网页和 `/token` 仍要求正确的 Basic 登录认证。
-2. 页面取得 token 后，通过第一条 WebSocket JSON 消息发送 `AuthToken`。
-3. ttyd 原有逻辑验证 token，成功后才调用 `spawn_process` 创建终端。
-4. token 缺失或错误会断开连接；如果握手携带了错误的 Authorization，仍会被拒绝。
-
-`-O` 同源检查保持开启。相比原版，未携带认证头的客户端可以建立 WebSocket 握手，但拿不到通过认证才能取得的 token 就不能启动 shell。这是本项目维护的兼容补丁，不是上游已发布修复。
-
-## 使用范围与限制
-
-- 默认是 HTTP + 登录密码，面向可信内网；没有提供 HTTPS 或公网部署方案。
-- 会话保活由 Herdr 后台负责，网页连接本身仍可能在 iPad 灭屏时断开。
-- 网络或 IP 改变后停止并重新启动，使用新打印的地址。必要时允许 macOS 入站连接。
-- 已使用 Herdr 0.9.0 验证：关闭浏览器后任务继续完成，重连复用同一 shell PID。
-- 已在 macOS 验证编译、首次生成凭据、认证、真实 shell 命令。缺少/错误 token 被拒绝，正确 token 不带 WebSocket Basic 请求头也能连接。
-- 面板、贴边收起、方向键、清屏和键盘定位经过浏览器模拟测试；**真实 iPad 的键盘、输入法及长期性能仍未完成验收**。
-
-## 修改与构建
-
-- `setup.sh`：安装依赖、编译；`start.sh`：生成登录凭据并前台运行。
-- `web/touch-panel.html`：触摸面板和光标定位逻辑。
-- `web/index-original.html`：原始 ttyd 前端；`web/index.html`：实际提供给浏览器的页面。
-- `vendor/ttyd`：ttyd 1.7.7 源码及上述兼容补丁。
-
-改动面板后重新生成页面，然后刷新浏览器：
+停止**网页服务**后，在干净的仓库中执行：
 
 ```sh
-python3 scripts/build-web.py
+git pull --ff-only
+./setup.sh
+./start.sh
 ```
 
-修改 C 源码后运行 `./setup.sh` 重新构建，并停止、重新启动服务。
+默认沿用 `~/.local/share/vibe-webterminal/credential` 和同名 Herdr 会话。新版改为表单登录，首次升级需要登录一次；之后更新会保留有效登录。旧版直接 shell 的进程不会自动迁入 Herdr。
 
-第三方组件与原始许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。仓库不携带登录凭据、个人机器地址、日志或编译产物。
+如果此前使用了自定义状态目录或会话名，启动时继续使用相同的 `VIBE_STATE_DIR`、`VIBE_SESSION`。`VIBE_SESSION_KEY_FILE` 可指定已有签名密钥文件；不要删除或覆盖正在使用的密钥。
+
+## 常见问题
+
+- **页面打不开**：确认网页服务在运行、设备能访问该 Mac 的网络，以及 macOS 允许入站连接。换网络后重新启动并使用新打印的地址。
+- **端口被占用**：使用 `PORT=7682 ./start.sh`，或停止原来的网页服务。
+- **提示不能在 Herdr 中启动**：从普通 Terminal/iTerm 窗口启动；这是防止嵌套启动，不影响接回已有会话。
+- **Send 后命令没执行**：这是预期行为，再点 Panel 的 Enter 才发送回车。
+- **键盘出现后看不到顶部 tab**：上方内容被暂时裁切，收起键盘即可恢复。
+- **反复登录**：使用同一个状态目录和 `session-key` 文件，并检查登录是否过期。不要混用旧版 Basic 认证启动脚本。
+
+## 构建与验证
+
+Go 1.23+ 可直接运行 `make build`，产物为 `bin/herdr-tty`。手工运行该程序时默认监听本机回环地址；Mac 启动脚本使用检测到的内网地址并强制表单认证。
+
+```sh
+make check  # Go race tests、vet、构建，以及 Node.js 前端行为检查
+```
+
+Node.js 仅用于开发检查，不是运行依赖。主要文件：
+
+- `setup.sh` / `start.sh`：Mac 安装与启动入口。
+- `internal/app/web/mobile.js` / `mobile.css`：Panel、触摸、键盘适配和重连。
+- `internal/app`：Go 网关、Cookie 登录和 ttyd 进程管理。
+- `third_party/herdr-tty.LICENSE`：上游许可证。
+
+已使用 Herdr 0.9.0、ttyd 1.7.7 验证登录、Send/Enter 分离、多行输入、断网重连、服务重启保留登录，以及断开后同一 shell 继续运行。键盘适配已用真实 Codex 界面配合浏览器视口模拟验证；真实设备体验以使用反馈为准。
+
+本项目面向可信内网，默认 HTTP 加密码登录，不包含 HTTPS 或公网部署配置。仓库不携带个人凭据、机器地址、日志或编译产物。组件来源与许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。
