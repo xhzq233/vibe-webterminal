@@ -68,6 +68,10 @@ Panel 默认位于可见区域上方，给终端底部输入区留出空间。�
 - 基础高度使用 `100dvh` 扣除 Safe Area，跟随浏览器工具栏；不再用工具栏收起时的最大高度 `100lvh`，避免普通模式也裁掉顶部。
 - Panel 独立定位，默认靠上，并给底部输入和状态行留出空间。
 
+## Codex 没有颜色
+
+网页服务会过滤启动环境中的 `NO_COLOR`。如果旧的 Herdr 持久会话已继承了 `NO_COLOR=1`，正在运行的 Codex 不会自动恢复颜色。等任务结束并退出 Codex 后，在同一 pane 执行 `env -u NO_COLOR codex resume` 恢复对话即可，不需要停止 Herdr 会话。
+
 ## 只保留顶部 tab
 
 如果希望隐藏 Herdr 侧边栏，将以下设置合并到 `~/.config/herdr/config.toml`。已有 `[ui]` 时修改其中的对应项，不要重复添加同名段：

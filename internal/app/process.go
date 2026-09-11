@@ -27,6 +27,11 @@ func childEnvironment(environment []string) []string {
 }
 
 func excludeChildEnvironment(name, value string) bool {
+	// Automation launchers may disable colors for captured logs. The browser
+	// hosts an interactive terminal and must not inherit that setting.
+	if name == "NO_COLOR" {
+		return true
+	}
 	for _, prefix := range applicationEnvironmentPrefixes {
 		if strings.HasPrefix(name, prefix) {
 			return true
