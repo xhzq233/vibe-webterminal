@@ -265,6 +265,7 @@ func TestNativeArgs(t *testing.T) {
 		"--credential", "alice:secret",
 		"--cwd", "/workspace",
 		"--terminal-type", "xterm-256color",
+		"--signal", "9",
 		"herdr", "--session", "work", "--handoff",
 	}
 	if got := config.NativeArgs(); !reflect.DeepEqual(got, want) {

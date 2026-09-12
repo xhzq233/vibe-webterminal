@@ -352,6 +352,10 @@ func (config Config) BackendArgs(port int) []string {
 		"--max-clients", strconv.Itoa(config.MaxClients),
 		"--cwd", config.CWD,
 		"--terminal-type", "xterm-256color",
+		// Herdr clients can hang in their SIGHUP shutdown path after a browser
+		// disconnect. They are disposable UI clients; force-reap them so each
+		// reconnect does not leave an exiting process behind.
+		"--signal", "9",
 	}
 	// Herdr 0.9 uses this remote-terminal marker to send OSC 52 to the
 	// browser instead of writing to the server Mac's clipboard.
@@ -371,6 +375,7 @@ func (config Config) NativeArgs() []string {
 		"--credential", config.Username + ":" + config.Password,
 		"--cwd", config.CWD,
 		"--terminal-type", "xterm-256color",
+		"--signal", "9",
 	}
 	return config.appendHerdrCommand(args)
 }
