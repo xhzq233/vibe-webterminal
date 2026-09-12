@@ -262,6 +262,8 @@
       ["right", "→", "Arrow Right", () => arrow("C")],
       ["clear", "Clear", "Clear", () => window.term.input("\x0c", true)],
       ["interrupt", "Ctrl+C", "Ctrl+C", () => window.term.input("\x03", true)],
+      ["delete", "Del", "Delete", () => window.term.input("\x7f", true)],
+      ["alt-delete", "Opt+Del", "Option+Delete", () => window.term.input("\x1b\x7f", true)],
     ];
     const shortcutButtons = shortcuts.map(([name, label, title, action]) => {
       const button = appendButton(actions, () => {

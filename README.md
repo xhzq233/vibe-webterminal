@@ -54,6 +54,8 @@ Panel 默认位于可见区域上方，给终端底部输入区留出空间。�
 | Ctrl+C | 通常用于中断前台命令 |
 | Clear | 发送 Ctrl+L；由当前终端程序处理 |
 | Esc | 发送 Escape |
+| Del | 发送 Delete（`0x7f`） |
+| Opt+Del | 发送 Option+Delete（通常按词删除） |
 
 在 Codex 中，可点 **Send** 把草稿放入 Codex 的输入区，确认后再点 **Enter**；也可直接点 Panel 的 **Enter**，一次完成粘贴和提交。Send 是粘贴，不会先清空终端里已有的输入。终端程序如何处理多行粘贴由该程序决定。
 

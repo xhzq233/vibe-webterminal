@@ -720,6 +720,18 @@ test("Send only pastes while Panel Enter submits any remaining draft", async () 
   ]);
 });
 
+test("Delete shortcuts send terminal delete and Option+Delete sequences", async () => {
+  const runtime = loadTouchMobile();
+
+  await runtime.click(runtime.toolbarButton("delete"));
+  await runtime.click(runtime.toolbarButton("alt-delete"));
+
+  assert.deepEqual(runtime.terminalInputs, [
+    { data: "\x7f", wasUserInput: true },
+    { data: "\x1b\x7f", wasUserInput: true },
+  ]);
+});
+
 test("reconnect input dispatches ttyd Enter and preserves the draft", async () => {
   const runtime = loadTouchMobile();
 

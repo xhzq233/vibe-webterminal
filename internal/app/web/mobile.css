@@ -87,7 +87,7 @@
   -webkit-user-select: none;
 }
 #panel-content { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-#panel-actions { display: grid; grid-template-columns: repeat(3, minmax(28px, 1fr)) minmax(42px, 1.4fr) minmax(50px, 1.6fr) minmax(32px, 1fr); gap: 4px; }
+#panel-actions { display: grid; grid-template-columns: repeat(3, minmax(28px, 1fr)) minmax(42px, 1.4fr) minmax(50px, 1.6fr) minmax(32px, 1fr) minmax(32px, 1fr) minmax(52px, 1.6fr); gap: 4px; }
 #panel-composer { display: flex; align-items: stretch; gap: 8px; }
 #panel-input {
   flex: 1;
@@ -132,6 +132,10 @@
 #touch-toolbar button:disabled { opacity: .42; }
 #touch-toolbar svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; }
 
-#panel-actions button { min-width: 0; height: 36px; padding: 0 4px; background: rgba(255,255,255,.04); }
+#panel-actions button { min-width: 0; height: 36px; padding: 0 4px; background: rgba(255,255,255,.04); white-space: nowrap; }
+
+@media (max-width: 480px) {
+  #panel-actions { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 
 #panel-submit-actions button { padding: 0; white-space: nowrap; }
