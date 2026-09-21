@@ -133,6 +133,10 @@
 #touch-toolbar svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; }
 
 #panel-actions button { min-width: 0; height: 36px; padding: 0 4px; background: rgba(255,255,255,.04); white-space: nowrap; }
+#panel-actions button[data-action="option"][aria-pressed="true"] {
+  background: rgba(138,180,248,.3);
+  color: #fff;
+}
 
 @media (max-width: 480px) {
   #panel-actions { grid-template-columns: repeat(4, minmax(0, 1fr)); }

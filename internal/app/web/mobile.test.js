@@ -350,6 +350,7 @@ function loadTouchMobile({
     },
   };
   window.term = {
+    modes: { applicationCursorKeysMode: false },
     buffer: {
       active: {
         get length() {
@@ -720,15 +721,25 @@ test("Send only pastes while Panel Enter submits any remaining draft", async () 
   ]);
 });
 
-test("Delete shortcuts send terminal delete and Option+Delete sequences", async () => {
+test("Option modifier combines with delete and other shortcuts", async () => {
   const runtime = loadTouchMobile();
 
   await runtime.click(runtime.toolbarButton("delete"));
-  await runtime.click(runtime.toolbarButton("alt-delete"));
+  await runtime.click(runtime.toolbarButton("option"));
+  assert.equal(runtime.toolbarButton("option").getAttribute("aria-pressed"), "true");
+  await runtime.click(runtime.toolbarButton("delete"));
+  await runtime.click(runtime.toolbarButton("right"));
+  await runtime.click(runtime.toolbarButton("escape"));
+  await runtime.click(runtime.toolbarButton("option"));
+  assert.equal(runtime.toolbarButton("option").getAttribute("aria-pressed"), "false");
+  await runtime.click(runtime.toolbarButton("delete"));
 
   assert.deepEqual(runtime.terminalInputs, [
     { data: "\x7f", wasUserInput: true },
     { data: "\x1b\x7f", wasUserInput: true },
+    { data: "\x1b\x1b[C", wasUserInput: true },
+    { data: "\x1b\x1b", wasUserInput: true },
+    { data: "\x7f", wasUserInput: true },
   ]);
 });
 

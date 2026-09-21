@@ -253,17 +253,26 @@
     const actions = document.createElement("div");
     actions.className = "herdr-tty-toolbar-actions";
     actions.id = "panel-actions";
-    const arrow = (direction) => window.term.input(
-      "\x1b" + (window.term.modes.applicationCursorKeysMode ? "O" : "[") + direction, true,
+    let optionActive = false;
+    let optionButton;
+    function setOptionActive(active) {
+      optionActive = active;
+      optionButton?.setAttribute("aria-pressed", String(active));
+    }
+    function sendPanelInput(data) {
+      window.term.input(optionActive ? "\x1b" + data : data, true);
+    }
+    const arrow = (direction) => sendPanelInput(
+      "\x1b" + (window.term.modes.applicationCursorKeysMode ? "O" : "[") + direction,
     );
     const shortcuts = [
       ["up", "↑", "Arrow Up", () => arrow("A")],
       ["down", "↓", "Arrow Down", () => arrow("B")],
       ["right", "→", "Arrow Right", () => arrow("C")],
-      ["clear", "Clr", "Clear", () => window.term.input("\x0c", true)],
-      ["interrupt", "^C", "Ctrl+C", () => window.term.input("\x03", true)],
-      ["delete", "Del", "Delete", () => window.term.input("\x7f", true)],
-      ["alt-delete", "⌥Del", "Option+Delete", () => window.term.input("\x1b\x7f", true)],
+      ["clear", "Clr", "Clear", () => sendPanelInput("\x0c")],
+      ["interrupt", "^C", "Ctrl+C", () => sendPanelInput("\x03")],
+      ["delete", "Del", "Delete", () => sendPanelInput("\x7f")],
+      ["option", "Opt", "Option", () => setOptionActive(!optionActive)],
     ];
     const shortcutButtons = shortcuts.map(([name, label, title, action]) => {
       const button = appendButton(actions, () => {
@@ -274,10 +283,12 @@
       button.setAttribute("aria-label", title);
       return button;
     });
+    optionButton = shortcutButtons.find((button) => button.dataset.action === "option");
+    setOptionActive(false);
     const escapeButton = appendButton(
       actions,
       () => {
-        if (updateConnectionState() === "connected") window.term.input("\x1b", true);
+        if (updateConnectionState() === "connected") sendPanelInput("\x1b");
       },
       "escape",
     );
@@ -411,6 +422,7 @@
       connectionState = state;
       scheduleReconnect();
       toolbar.dataset.connectionState = state;
+      if (state !== "connected") setOptionActive(false);
       for (const button of [...shortcutButtons, escapeButton, sendButton]) button.disabled = state !== "connected";
       inputButton.disabled = state === "reconnecting";
 
