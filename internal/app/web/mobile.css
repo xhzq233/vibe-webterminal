@@ -143,3 +143,14 @@
 }
 
 #panel-submit-actions button { padding: 0; white-space: nowrap; }
+
+#panel-images { display: flex; gap: 6px; flex-wrap: wrap; }
+#panel-images:empty, #panel-image-status:empty { display: none; }
+#panel-images button { padding: 2px; height: 64px; }
+#panel-images img { width: 60px; height: 60px; object-fit: contain; }
+#panel-image-status { font-size: 12px; color: #ccc; }
+
+#panel-input-field { position: relative; flex: 1; min-width: 0; }
+#panel-input-field #panel-input { display: block; width: 100%; padding-right: 44px; padding-bottom: 32px; }
+#touch-toolbar #panel-attach-button { position: absolute; right: 4px; bottom: 4px; display: flex; align-items: center; justify-content: center; min-width: 32px; width: 32px; height: 32px; padding: 0; color: #9298a3; border-radius: 6px; }
+#touch-toolbar #panel-attach-button:hover { color: #f3f4f6; }

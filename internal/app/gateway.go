@@ -121,6 +121,10 @@ func newGatewayHandler(auth *authenticator, upstream http.Handler) http.Handler 
 			http.Error(writer, "cross-origin WebSocket denied", http.StatusForbidden)
 			return
 		}
+		if request.URL.Path == "/_herdr/image" {
+			serveImageUpload(writer, request)
+			return
+		}
 		if serveMobileAsset(writer, request) {
 			return
 		}

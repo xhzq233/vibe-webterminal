@@ -222,7 +222,10 @@
     pasteInput.setAttribute("autocapitalize", "off");
     pasteInput.setAttribute("autocorrect", "off");
     pasteInput.setAttribute("spellcheck", "false");
-    composer.appendChild(pasteInput);
+    const inputField = document.createElement("div");
+    inputField.id = "panel-input-field";
+    inputField.appendChild(pasteInput);
+    composer.appendChild(inputField);
     const draftStorageKey = "herdr-tty-draft";
     try {
       pasteInput.value = window.sessionStorage.getItem(draftStorageKey) || "";
@@ -234,20 +237,95 @@
     pasteInput.addEventListener("compositionstart", () => { composing = true; });
     pasteInput.addEventListener("compositionend", () => { composing = false; });
 
-    function sendDraft() {
-      if (composing || updateConnectionState() !== "connected" || pasteInput.value === "") return;
-      window.term.paste(pasteInput.value);
-      pasteInput.value = "";
+    const attachments = [];
+    const previews = document.createElement("div");
+    previews.id = "panel-images";
+    content.appendChild(previews);
+    const imageStatus = document.createElement("div");
+    imageStatus.id = "panel-image-status";
+    imageStatus.setAttribute("role", "status");
+    content.appendChild(imageStatus);
+    function addImages(files) {
+      if (sending) return;
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) continue;
+        if (file.size > 20 * 1024 * 1024) {
+          imageStatus.textContent = "图片不能超过 20 MB";
+          continue;
+        }
+        const item = { file, url: URL.createObjectURL(file), path: "" };
+        const card = document.createElement("button");
+        card.type = "button";
+        card.title = "删除图片";
+        const image = document.createElement("img");
+        image.src = item.url;
+        image.alt = file.name || "粘贴的图片";
+        card.appendChild(image);
+        card.addEventListener("click", () => {
+          if (sending) return;
+          attachments.splice(attachments.indexOf(item), 1);
+          URL.revokeObjectURL(item.url);
+          card.remove();
+        });
+        item.card = card;
+        attachments.push(item);
+        previews.appendChild(card);
+      }
+    }
+    pasteInput.addEventListener("paste", (event) => {
+      const files = Array.from(event.clipboardData?.files || []);
+      if (!files.some((file) => file.type.startsWith("image/"))) return;
+      event.preventDefault();
+      addImages(files);
+      const text = event.clipboardData.getData("text/plain");
+      if (text) pasteInput.setRangeText(text, pasteInput.selectionStart, pasteInput.selectionEnd, "end");
+    });
+    const imagePicker = document.createElement("input");
+    imagePicker.type = "file";
+    imagePicker.accept = "image/png,image/jpeg,image/gif,image/webp";
+    imagePicker.multiple = true;
+    imagePicker.hidden = true;
+    imagePicker.addEventListener("change", () => {
+      addImages(Array.from(imagePicker.files || []));
+      imagePicker.value = "";
+    });
+    composer.appendChild(imagePicker);
+    let sending = false;
+    async function sendDraft() {
+      if (sending || composing || updateConnectionState() !== "connected") return false;
+      if (!pasteInput.value && !attachments.length) return true;
+      sending = true;
+      imageStatus.textContent = attachments.length ? "正在上传图片…" : "";
+      try {
+        for (const item of attachments) {
+          if (item.path) continue;
+          const response = await fetch("/_herdr/image", {
+            method: "POST", body: item.file, credentials: "same-origin",
+          });
+          if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
+            throw new Error("图片上传失败，请检查连接或重新登录");
+          }
+          item.path = (await response.json()).path;
+        }
+        if (updateConnectionState() !== "connected") throw new Error("连接已断开，请重连后发送");
+        const paths = attachments.map((item) => "'" + item.path.replaceAll("'", "'\\''") + "'");
+        window.term.paste([pasteInput.value, ...paths].filter(Boolean).join(" "));
+        pasteInput.value = "";
+        for (const item of attachments) { URL.revokeObjectURL(item.url); item.card.remove(); }
+        attachments.length = 0;
+        imageStatus.textContent = "";
+        return true;
+      } catch (error) {
+        imageStatus.textContent = error.message;
+        return false;
+      } finally { sending = false; }
     }
 
-    function pressEnter() {
-      if (composing) return;
+    async function pressEnter() {
+      if (composing || sending) return;
       const state = updateConnectionState();
       if (state === "reconnect-required") reconnectTerminal();
-      else if (state === "connected") {
-        sendDraft();
-        window.term.input("\r", true);
-      }
+      else if (state === "connected" && await sendDraft()) window.term.input("\r", true);
     }
 
     const actions = document.createElement("div");
@@ -301,6 +379,11 @@
     sendButton.setAttribute("title", "Paste draft without pressing Enter");
     const inputButton = appendButton(submitActions, pressEnter, "input");
     inputButton.id = "enter-button";
+    const imageButton = appendButton(inputField, () => imagePicker.click(), "image");
+    imageButton.id = "panel-attach-button";
+    imageButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 11-8.5 8.5a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 0 1-2.8-2.8L15 5.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    imageButton.setAttribute("title", "添加图片");
+    imageButton.setAttribute("aria-label", "添加图片");
     composer.appendChild(submitActions);
     content.appendChild(actions);
     content.appendChild(composer);
