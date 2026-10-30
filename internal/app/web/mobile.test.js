@@ -88,6 +88,18 @@ function loadMobile({
   return {
     styles,
     terminalInputs,
+    dispatchKeyDown(overrides = {}) {
+      let prevented = false;
+      let stopped = false;
+      documentListeners.get("keydown")({
+        key: "Enter", shiftKey: true, keyCode: 13,
+        target: { classList: { contains: (name) => name === "xterm-helper-textarea" } },
+        preventDefault() { prevented = true; },
+        stopImmediatePropagation() { stopped = true; },
+        ...overrides,
+      });
+      return { prevented, stopped };
+    },
     dispatchBeforeInput(overrides = {}) {
       let prevented = false;
       let stopped = false;
@@ -905,4 +917,47 @@ test("non-iOS virtual keyboards keep native input handling", () => {
   assert.equal(result.prevented, false);
   assert.equal(result.stopped, false);
   assert.deepEqual(runtime.terminalInputs, []);
+});
+
+
+test("terminal Shift+Enter preserves its modifier without sending a submit", () => {
+  const runtime = loadMobile({ userAgent: "Chrome", maxTouchPoints: 0 });
+  assert.deepEqual(runtime.dispatchKeyDown(), { prevented: true, stopped: true });
+  assert.deepEqual(runtime.terminalInputs, [{ data: "\x1b[13;2u", wasUserInput: true }]);
+});
+
+for (const overrides of [
+  { shiftKey: false }, { isComposing: true }, { keyCode: 229 },
+  { ctrlKey: true }, { altKey: true }, { metaKey: true },
+  { defaultPrevented: true },
+  { target: { classList: { contains: () => false } } },
+]) {
+  test(`Shift+Enter leaves other input paths alone: ${JSON.stringify(overrides)}`, () => {
+    const runtime = loadMobile({ userAgent: "Chrome", maxTouchPoints: 0 });
+    assert.deepEqual(runtime.dispatchKeyDown(overrides), { prevented: false, stopped: false });
+    assert.deepEqual(runtime.terminalInputs, []);
+  });
+}
+
+
+test("Mac IME punctuation defers the ASCII key and forwards committed Chinese text", () => {
+  const runtime = loadMobile({ userAgent: "Macintosh Chrome", platform: "MacIntel", maxTouchPoints: 0 });
+  const target = { classList: { contains: () => true } };
+  assert.deepEqual(runtime.dispatchKeyDown({ key: ",", keyCode: 188, shiftKey: false, target }),
+    { prevented: false, stopped: true });
+  assert.deepEqual(runtime.terminalInputs, []);
+  assert.equal(runtime.dispatchBeforeInput({ data: "，", target }).prevented, true);
+  assert.deepEqual(runtime.terminalInputs, [{ data: "，", wasUserInput: true }]);
+});
+
+test("Mac native punctuation preserves English input and shortcut/composition handling", () => {
+  const runtime = loadMobile({ userAgent: "Macintosh Chrome", platform: "MacIntel", maxTouchPoints: 0 });
+  const target = { classList: { contains: () => true } };
+  runtime.dispatchKeyDown({ key: ",", keyCode: 188, shiftKey: false, target });
+  runtime.dispatchBeforeInput({ data: ",", target });
+  assert.deepEqual(runtime.terminalInputs, [{ data: ",", wasUserInput: true }]);
+  for (const override of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+    assert.deepEqual(runtime.dispatchKeyDown({ key: ",", shiftKey: false, ...override }),
+      { prevented: false, stopped: false });
+  }
 });

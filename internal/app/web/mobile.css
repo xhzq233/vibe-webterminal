@@ -151,6 +151,55 @@
 #panel-image-status { font-size: 12px; color: #ccc; }
 
 #panel-input-field { position: relative; flex: 1; min-width: 0; }
-#panel-input-field #panel-input { display: block; width: 100%; padding-right: 44px; padding-bottom: 32px; }
-#touch-toolbar #panel-attach-button { position: absolute; right: 4px; bottom: 4px; display: flex; align-items: center; justify-content: center; min-width: 32px; width: 32px; height: 32px; padding: 0; color: #9298a3; border-radius: 6px; }
-#touch-toolbar #panel-attach-button:hover { color: #f3f4f6; }
+#panel-input-field #panel-input { display: block; width: 100%; padding-right: 80px; padding-bottom: 32px; }
+#touch-toolbar #panel-attach-button, #touch-toolbar #panel-files-button { position: absolute; right: 4px; bottom: 4px; display: flex; align-items: center; justify-content: center; min-width: 32px; width: 32px; height: 32px; padding: 0; color: #9298a3; border-radius: 6px; }
+#touch-toolbar #panel-files-button { right: 40px; }
+#touch-toolbar #panel-attach-button:hover, #touch-toolbar #panel-files-button:hover { color: #f3f4f6; }
+#touch-toolbar #panel-files-button[aria-expanded="true"] { color: #8ab4f8; }
+
+#panel-images .panel-file-attachment { max-width: 200px; height: 36px; padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: rgba(255,255,255,.06); }
+
+#touch-toolbar[hidden] { display: none; }
+#desktop-panel-button {
+  position: fixed; right: 14px; bottom: 14px; z-index: 100;
+  padding: 9px 14px; border: 1px solid #ffffff26; border-radius: 10px;
+  background: #202328ed; color: #e5e7eb; font: 13px system-ui; cursor: pointer;
+}
+.herdr-tty-files {
+  display: flex; flex-direction: column; gap: 6px; margin: 0;
+  width: 100%; height: min(260px, max(120px, calc(var(--herdr-tty-viewport-height) - 340px)));
+  box-sizing: border-box; padding: 8px; border: 1px solid #ffffff20; border-radius: 8px;
+  background: #171a20; color: #e5e7eb; font: 12px/1.4 system-ui, sans-serif;
+  overflow: hidden; touch-action: auto; user-select: text; -webkit-user-select: text;
+}
+.herdr-tty-files[hidden] { display: none; }
+.herdr-tty-files header { display: flex; align-items: center; justify-content: space-between; }
+.herdr-tty-files header strong { font-size: 12px; }
+.herdr-tty-files form { display: flex; gap: 6px; }
+.herdr-tty-files input {
+  min-width: 0; flex: 1; border: 1px solid #ffffff30; border-radius: 8px;
+  padding: 5px 6px; background: #0b0e13; color: inherit; font: 16px/1.4 ui-monospace, monospace;
+}
+.herdr-tty-files input:focus { outline: 1px solid #8ab4f8; }
+.herdr-tty-files nav { display: flex; flex-wrap: wrap; gap: 4px; }
+#touch-toolbar .herdr-tty-files button, .herdr-tty-files a {
+  min-width: 0; height: auto; min-height: 28px; touch-action: pan-y;
+  border: 1px solid #ffffff18; border-radius: 5px; padding: 4px 6px;
+  background: #ffffff09; color: inherit; font: inherit; cursor: pointer; text-decoration: none;
+}
+.herdr-tty-files button:hover, .herdr-tty-files a:hover { background: #ffffff14; }
+.herdr-tty-files button:disabled { opacity: .4; cursor: default; }
+.herdr-tty-files [hidden] { display: none; }
+.herdr-tty-files a { margin-left: auto; background: #8ab4f825; color: #b6d1ff; }
+.herdr-tty-files p { margin: 0; color: #9ca6b7; font-size: 12px; overflow-wrap: anywhere; }
+.herdr-tty-files .file-list, .herdr-tty-files .file-preview { overflow: auto; min-height: 0; flex: 1; overscroll-behavior: contain; touch-action: pan-y; }
+.herdr-tty-files .file-list:empty, .herdr-tty-files .file-preview:empty { display: none; }
+#touch-toolbar .herdr-tty-files .file-entry {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px;
+  text-align: left; border: 0; border-bottom: 1px solid #ffffff09; border-radius: 0; background: transparent;
+}
+.herdr-tty-files .file-directory .file-name { color: #8ab4f8; }
+.herdr-tty-files .file-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.herdr-tty-files .file-detail { flex: 0 0 auto; color: #929bab; font-size: 12px; }
+.herdr-tty-files pre { margin: 0; padding: 6px; white-space: pre-wrap; overflow-wrap: anywhere; background: #0b0e13; border-radius: 8px; font: 12px/1.5 ui-monospace, monospace; tab-size: 4; }
+.herdr-tty-files .file-preview img { max-width: 100%; height: auto; }

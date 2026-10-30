@@ -71,7 +71,7 @@ func ParseConfig(args []string, getenv getenvFunc, getwd getwdFunc) (Config, err
 		CWD:        workingDirectory,
 		MaxClients: 3,
 		AuthMode:   "auto",
-		SessionTTL: 7 * 24 * time.Hour,
+		SessionTTL: 30 * 24 * time.Hour,
 	}
 	configPath, err := configPathFromArgs(args)
 	if err != nil {

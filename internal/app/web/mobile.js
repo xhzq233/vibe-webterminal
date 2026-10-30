@@ -23,16 +23,54 @@
   window.addEventListener("orientationchange", scheduleViewportUpdate, { passive: true });
   updateVisibleViewport();
 
+  const nativeMacPunctuation = !isIOS &&
+    (/Mac/.test(navigator.platform) || /Macintosh/.test(navigator.userAgent));
+  let nativePunctuationTarget = null;
+  document.addEventListener("keydown", (event) => {
+    nativePunctuationTarget = null;
+    if (
+      nativeMacPunctuation && !event.defaultPrevented && !event.isComposing &&
+      event.keyCode !== 229 && !event.altKey && !event.ctrlKey && !event.metaKey &&
+      event.key?.length === 1 && /^[\p{P}\p{S}]$/u.test(event.key) &&
+      event.target?.classList?.contains("xterm-helper-textarea") &&
+      typeof window.term?.input === "function"
+    ) {
+      // Third-party Mac IMEs can expose an ASCII key before committing Chinese
+      // punctuation. Let the textarea receive the IME's actual text instead.
+      nativePunctuationTarget = event.target;
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (
+      event.defaultPrevented || event.isComposing || event.keyCode === 229 ||
+      event.key !== "Enter" || !event.shiftKey ||
+      event.altKey || event.ctrlKey || event.metaKey ||
+      !event.target?.classList?.contains("xterm-helper-textarea") ||
+      typeof window.term?.input !== "function"
+    ) return;
+    // xterm.js otherwise encodes Shift+Enter as an ordinary Enter. Preserve
+    // the modifier so Claude/Codex can distinguish a newline from submission.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.term.input("\x1b[13;2u", true);
+  }, { capture: true });
+
+  document.addEventListener("keypress", (event) => {
+    if (nativePunctuationTarget === event.target) event.stopImmediatePropagation();
+  }, { capture: true });
+  document.addEventListener("keyup", () => { nativePunctuationTarget = null; }, { capture: true });
+  document.addEventListener("compositionstart", () => { nativePunctuationTarget = null; }, { capture: true });
+
   let pendingIOSPunctuation = null;
 
   function isIOSVirtualPunctuation(event) {
     return (
-      isIOS &&
+      (isIOS || nativePunctuationTarget === event.target) &&
       !event.defaultPrevented &&
       !event.isComposing &&
       event.inputType === "insertText" &&
       !!event.data &&
-      /^\p{P}+$/u.test(event.data) &&
+      /^[\p{P}\p{S}]+$/u.test(event.data) &&
       event.target?.classList?.contains("xterm-helper-textarea") &&
       typeof window.term?.input === "function"
     );
@@ -45,8 +83,8 @@
   document.addEventListener(
     "beforeinput",
     (event) => {
-      // xterm.js #5835: iOS exposes virtual Chinese punctuation here, but its
-      // keyCode 229 path can drop the corresponding terminal input.
+      // Forward committed punctuation once, before xterm's key/composition
+      // bookkeeping can discard or replace the IME's text.
       if (!isIOSVirtualPunctuation(event)) return;
 
       const target = event.target;
@@ -99,7 +137,7 @@
     const target = event.target;
     if (
       typeof target?.closest === "function" &&
-      target.closest(".herdr-tty-paste-input")
+      (target.closest(".herdr-tty-paste-input") || target.closest(".herdr-tty-files"))
     ) {
       return;
     }
@@ -248,19 +286,23 @@
     function addImages(files) {
       if (sending) return;
       for (const file of files) {
-        if (!file.type.startsWith("image/")) continue;
         if (file.size > 20 * 1024 * 1024) {
-          imageStatus.textContent = "图片不能超过 20 MB";
+          imageStatus.textContent = "文件不能超过 20 MB";
           continue;
         }
         const item = { file, url: URL.createObjectURL(file), path: "" };
         const card = document.createElement("button");
         card.type = "button";
-        card.title = "删除图片";
-        const image = document.createElement("img");
-        image.src = item.url;
-        image.alt = file.name || "粘贴的图片";
-        card.appendChild(image);
+        card.title = "删除附件";
+        if (file.type.startsWith("image/")) {
+          const image = document.createElement("img");
+          image.src = item.url;
+          image.alt = file.name || "粘贴的图片";
+          card.appendChild(image);
+        } else {
+          card.className = "panel-file-attachment";
+          card.textContent = file.name || "附件";
+        }
         card.addEventListener("click", () => {
           if (sending) return;
           attachments.splice(attachments.indexOf(item), 1);
@@ -274,7 +316,7 @@
     }
     pasteInput.addEventListener("paste", (event) => {
       const files = Array.from(event.clipboardData?.files || []);
-      if (!files.some((file) => file.type.startsWith("image/"))) return;
+      if (!files.length) return;
       event.preventDefault();
       addImages(files);
       const text = event.clipboardData.getData("text/plain");
@@ -282,7 +324,6 @@
     });
     const imagePicker = document.createElement("input");
     imagePicker.type = "file";
-    imagePicker.accept = "image/png,image/jpeg,image/gif,image/webp";
     imagePicker.multiple = true;
     imagePicker.hidden = true;
     imagePicker.addEventListener("change", () => {
@@ -295,15 +336,15 @@
       if (sending || composing || updateConnectionState() !== "connected") return false;
       if (!pasteInput.value && !attachments.length) return true;
       sending = true;
-      imageStatus.textContent = attachments.length ? "正在上传图片…" : "";
+      imageStatus.textContent = attachments.length ? "正在上传文件…" : "";
       try {
         for (const item of attachments) {
           if (item.path) continue;
-          const response = await fetch("/_herdr/image", {
+          const response = await fetch("/_herdr/file?name=" + encodeURIComponent(item.file.name || "attachment"), {
             method: "POST", body: item.file, credentials: "same-origin",
           });
           if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) {
-            throw new Error("图片上传失败，请检查连接或重新登录");
+            throw new Error("文件上传失败，请检查连接或重新登录");
           }
           item.path = (await response.json()).path;
         }
@@ -379,11 +420,17 @@
     sendButton.setAttribute("title", "Paste draft without pressing Enter");
     const inputButton = appendButton(submitActions, pressEnter, "input");
     inputButton.id = "enter-button";
+    const filesButton = appendButton(inputField, () => window.dispatchEvent(new Event("herdr-open-files")), "files");
+    filesButton.id = "panel-files-button";
+    filesButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke-linejoin="round"/><path d="M14 2v6h6M8 13h8M8 17h5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    filesButton.setAttribute("title", "浏览远端文件");
+    filesButton.setAttribute("aria-label", "浏览远端文件");
+    filesButton.setAttribute("aria-expanded", "false");
     const imageButton = appendButton(inputField, () => imagePicker.click(), "image");
     imageButton.id = "panel-attach-button";
     imageButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 11-8.5 8.5a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 0 1-2.8-2.8L15 5.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    imageButton.setAttribute("title", "添加图片");
-    imageButton.setAttribute("aria-label", "添加图片");
+    imageButton.setAttribute("title", "添加文件");
+    imageButton.setAttribute("aria-label", "添加文件");
     composer.appendChild(submitActions);
     content.appendChild(actions);
     content.appendChild(composer);
@@ -407,7 +454,7 @@
       toolbar.style.transform = `translate3d(${x}px, ${y}px, 0)`;
     }
     toolbar.addEventListener("pointerdown", (event) => {
-      if (event.target === pasteInput || event.button !== 0) return;
+      if (event.target === pasteInput || event.target.closest?.(".herdr-tty-files") || event.button !== 0) return;
       event.preventDefault();
       drag = { id: event.pointerId, startX: event.clientX, startY: event.clientY,
         x, y, moved: false };
@@ -443,6 +490,7 @@
     viewport?.addEventListener("resize", placePanel, { passive: true });
     viewport?.addEventListener("scroll", placePanel, { passive: true });
     window.addEventListener("resize", placePanel, { passive: true });
+    window.addEventListener("herdr-panel-resize", placePanel);
     placePanel();
 
     let connectionState = "connected";
@@ -712,7 +760,23 @@
     });
     window.term?.onSelectionChange?.(captureCopySelection);
 
-    if (!touchEnabled) return;
+    if (!touchEnabled) {
+      const panelButton = document.createElement("button");
+      panelButton.id = "desktop-panel-button";
+      panelButton.type = "button";
+      panelButton.textContent = "Panel";
+      panelButton.setAttribute("aria-expanded", "false");
+      panelButton.addEventListener("click", () => {
+        let panel = document.getElementById("touch-toolbar");
+        if (!panel) {
+          createInputToolbar(terminal);
+          panel = document.getElementById("touch-toolbar");
+        } else panel.hidden = !panel.hidden;
+        panelButton.setAttribute("aria-expanded", String(!panel.hidden));
+      });
+      document.body.appendChild(panelButton);
+      return;
+    }
     createInputToolbar(terminal);
 
     let startX = 0;

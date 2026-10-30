@@ -71,7 +71,7 @@ func RunGateway(ctx context.Context, config Config, stdin io.Reader, stdout, std
 	}
 
 	server := &http.Server{
-		Handler:           newGatewayHandler(auth, proxy),
+		Handler:           newGatewayHandler(auth, proxy, config),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
@@ -108,7 +108,11 @@ func RunGateway(ctx context.Context, config Config, stdin io.Reader, stdout, std
 	}
 }
 
-func newGatewayHandler(auth *authenticator, upstream http.Handler) http.Handler {
+func newGatewayHandler(auth *authenticator, upstream http.Handler, configs ...Config) http.Handler {
+	var config Config
+	if len(configs) > 0 {
+		config = configs[0]
+	}
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.Header().Set("X-Frame-Options", "DENY")
@@ -121,8 +125,16 @@ func newGatewayHandler(auth *authenticator, upstream http.Handler) http.Handler 
 			http.Error(writer, "cross-origin WebSocket denied", http.StatusForbidden)
 			return
 		}
-		if request.URL.Path == "/_herdr/image" {
-			serveImageUpload(writer, request)
+		if request.URL.Path == "/_herdr/file" || request.URL.Path == "/_herdr/image" {
+			serveFileUpload(writer, request)
+			return
+		}
+		if request.URL.Path == "/_herdr/files" || request.URL.Path == "/_herdr/download" {
+			serveFileBrowser(writer, request)
+			return
+		}
+		if request.URL.Path == "/_herdr/cwd" {
+			serveTabDirectory(writer, request, config)
 			return
 		}
 		if serveMobileAsset(writer, request) {

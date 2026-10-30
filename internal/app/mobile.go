@@ -13,8 +13,9 @@ import (
 const (
 	mobileJavaScriptPath = "/_herdr/mobile.js"
 	mobileCSSPath        = "/_herdr/mobile.css"
+	filesJavaScriptPath  = "/_herdr/files.js"
 	maxHTMLSize          = 4 << 20
-	mobileHead           = `<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover" data-herdr-tty-mobile><meta name="color-scheme" content="dark"><meta name="theme-color" content="#000000"><link rel="stylesheet" href="/_herdr/mobile.css"><script defer src="/_herdr/mobile.js"></script>`
+	mobileHead           = `<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover" data-herdr-tty-mobile><meta name="color-scheme" content="dark"><meta name="theme-color" content="#000000"><link rel="stylesheet" href="/_herdr/mobile.css"><script defer src="/_herdr/mobile.js"></script><script defer src="/_herdr/files.js"></script>`
 )
 
 //go:embed web/mobile.js
@@ -22,6 +23,9 @@ var mobileJavaScript []byte
 
 //go:embed web/mobile.css
 var mobileCSS []byte
+
+//go:embed web/files.js
+var filesJavaScript []byte
 
 func serveMobileAsset(writer http.ResponseWriter, request *http.Request) bool {
 	var content []byte
@@ -32,6 +36,9 @@ func serveMobileAsset(writer http.ResponseWriter, request *http.Request) bool {
 	case mobileCSSPath:
 		writer.Header().Set("Content-Type", "text/css; charset=utf-8")
 		content = mobileCSS
+	case filesJavaScriptPath:
+		writer.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		content = filesJavaScript
 	default:
 		return false
 	}

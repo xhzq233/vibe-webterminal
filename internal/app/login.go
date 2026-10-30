@@ -171,7 +171,7 @@ func (auth *authenticator) setCookie(writer http.ResponseWriter, request *http.R
 		MaxAge:   int(auth.ttl.Seconds()),
 		HttpOnly: true,
 		Secure:   request.TLS != nil || strings.EqualFold(request.Header.Get("X-Forwarded-Proto"), "https"),
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 
@@ -182,7 +182,7 @@ func clearCookie(writer http.ResponseWriter, request *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   request.TLS != nil || strings.EqualFold(request.Header.Get("X-Forwarded-Proto"), "https"),
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 

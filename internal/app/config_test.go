@@ -25,7 +25,7 @@ func TestParseConfig(t *testing.T) {
 	if config.Listen != "127.0.0.1:9000" || config.MaxClients != 4 {
 		t.Fatalf("unexpected config: %#v", config)
 	}
-	if config.AuthMode != "form" || config.SessionTTL != 7*24*time.Hour || config.OpenBrowser {
+	if config.AuthMode != "form" || config.SessionTTL != 30*24*time.Hour || config.OpenBrowser {
 		t.Fatalf("unexpected auth defaults: %#v", config)
 	}
 	if !reflect.DeepEqual(config.HerdrArgs, []string{"--session", "work"}) {

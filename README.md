@@ -99,7 +99,7 @@ herdr --session vibe-webterminal server reload-config
 
 - 刷新网页、iPad 灭屏断网或停止网页服务，只会断开客户端，Herdr 中的任务继续运行。
 - 网络恢复后自动重试连接；重连或登录恢复过程保留尚未发送的 Panel 草稿，恢复后不会自动提交。
-- 登录有效期默认 7 天。签名密钥保存在状态目录，重启网页服务不会使仍有效的登录失效；登录过期时自动转到登录页。
+- 登录有效期默认 30 天（从登录时起算，不随使用自动续期）。签名密钥保存在状态目录，重启网页服务不会使仍有效的登录失效；登录过期时自动转到登录页。
 - 多个网页共享同一会话。项目目录参数只用于创建新会话；重连保留原工作区和目录。
 - Mac 睡眠会暂停执行，关机或停止 Herdr 会结束进程；这不等同于 Agent 对话恢复。
 
@@ -131,6 +131,7 @@ git pull --ff-only
 - **端口被占用**：使用 `PORT=7682 ./start.sh`，或停止原来的网页服务。
 - **提示不能在 Herdr 中启动**：从普通 Terminal/iTerm 窗口启动；这是防止嵌套启动，不影响接回已有会话。
 - **Send 后命令没执行**：这是预期行为，再点 Panel 的 Enter 才发送回车。
+- **网页终端换行与中文标点**：Shift+Enter 会保留 Shift 修饰供 Claude/Codex 区分换行与提交；Mac 第三方输入法的标点通过浏览器原生文本输入转发，保留最终提交的中文或英文字符。更新后刷新网页加载修复。
 - **键盘出现后看不到顶部 tab**：上方内容被暂时裁切，收起键盘即可恢复。
 - **反复登录**：使用同一个状态目录和 `session-key` 文件，并检查登录是否过期。不要混用旧版 Basic 认证启动脚本。
 
@@ -153,4 +154,33 @@ Node.js 仅用于开发检查，不是运行依赖。主要文件：
 
 本项目面向可信内网，默认 HTTP 加密码登录，不包含 HTTPS 或公网部署配置。仓库不携带个人凭据、机器地址、日志或编译产物。组件来源与许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
-Panel 支持在输入框粘贴图片，也可点输入框右下角的 **回形针** 选择文件。发送前显示缩略图，点击缩略图可删除。Send 上传图片并将 Mac 上的绝对文件路径连同文本粘贴到终端；Enter 完成上传后再发送回车。支持 PNG/JPEG/GIF/WebP，单张上限 20 MB。图片保存在 `~/Library/Caches/herdr-tty/images/`，重启 Web 后仍保留；不再需要时可手动清理。浏览器未提供剪贴板图片时使用图片选择按钮。终端中的 agent 需能读取这台 Mac 的文件，图片路径不会自动转成 agent 的原生附件。
+## 远端文件浏览
+
+点 Panel 输入框右下角、回形针旁边的**文件图标**，在面板内展开紧凑文件区，随 Panel 一起拖动；再次点文件图标或关闭按钮即可收起。输入绝对路径或 `~/…` 后点 **打开**（也可按回车）。默认恢复上次浏览的目录，刷新网页后也会记住；预览文件后恢复到文件所在目录，首次使用打开主目录。目录记忆保存在当前浏览器，按站点区分。只有点“当前 Tab”才会读取 Herdr 会话当前激活 Tab 的焦点 Pane 目录（优先前台进程 cwd，其次 shell cwd）；无法识别时提示手动输入路径。文件夹名称显示蓝色，普通文件名称显示浅灰色。支持进入目录、上一级、刷新、文本和常见图片预览，以及原文件下载。桌面端点右下角 **Panel** 显示面板。
+
+文件浏览与 Terminal 共用登录，访问范围遵循服务端系统用户的文件权限。当前只提供浏览和下载；文本最多预览前 256 KB，图片最多预览 20 MB，下载不截断。HTML 等文件作为文本预览或附件下载，不在 Terminal 页面内执行。访问的文件位于运行服务的 Mac／Linux 主机上。
+
+## 可选：Cloudflare 内网 DDNS（Mac）
+
+`scripts/cloudflare-ddns.py` 将指定域名的 A 记录更新为 en0 当前 IPv4 地址，使用 DNS only、TTL 60 秒。没有 Wi-Fi 地址时保留原记录；地址变动或网页服务停止时，先调用本机 `herdr-web stop/start` 恢复监听，服务可访问后再更新 DNS。这里只重启 Web 网关，Herdr 会话由独立服务保留。
+
+需要 Python 3 和仅授权目标 Zone 的 `DNS:Edit` API Token。Token 存在仓库外、权限设为 `600`，配置示例：
+
+```json
+{
+  "zone_id": "YOUR_ZONE_ID",
+  "hostname": "terminal.example.com",
+  "token_file": "~/.config/herdr-tty/cloudflare-dns-token",
+  "gateway": "~/.local/bin/herdr-web"
+}
+```
+
+`gateway` 必须是支持 `stop/start` 的本机启动脚本，启动时读取 en0 地址并在 7681 端口监听。脚本和配置安装到固定本机路径后，可用用户 LaunchAgent 的 `RunAtLoad=true`、`StartInterval=600` 每 10 分钟执行：
+
+```sh
+python3 scripts/cloudflare-ddns.py ~/.config/herdr-tty/cloudflare-ddns.json
+```
+
+访问地址是 `http://域名:7681`。客户端仍需能访问 Mac 所在内网；DDNS 不提供穿透或 HTTPS。地址变化后，更新周期和 DNS 缓存都会影响恢复时间。
+
+Panel 支持上传任意类型文件，也支持在输入框粘贴图片或浏览器提供的文件，也可点输入框右下角的 **回形针** 选择文件。发送前图片显示缩略图，其他文件显示文件名，点击附件可删除。Send 上传文件并将服务端主机上的绝对文件路径连同文本粘贴到终端；Enter 完成上传后再发送回车。支持任意文件类型，单个文件上限 20 MB。文件保存在服务端用户缓存目录 `herdr-tty/files/`（Mac 为 `~/Library/Caches/herdr-tty/files/`，Linux 通常为 `~/.cache/herdr-tty/files/`），重启 Web 后仍保留；不再需要时可手动清理。浏览器未提供剪贴板图片时使用回形针选择按钮。终端中的 agent 需能读取服务端主机的文件，图片路径不会自动转成 agent 的原生附件。
